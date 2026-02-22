@@ -1,5 +1,5 @@
 # Stage 1: Build Vue 3 frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:20.11-alpine AS frontend-builder
 
 WORKDIR /frontend
 

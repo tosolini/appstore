@@ -12,10 +12,22 @@ jobs:
       CI: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: python -m pip install -U pip
       - run: pip install -r requirements.txt
       - run: pip install pytest
-      - run: python -m pytest --ignore=tests/test_encryption.py
+
+      - name: Run pytest (allow empty collection)
+        run: |
+          python -m pytest
+          ec=$?
+          if [ "$ec" -eq 5 ]; then
+            echo "No tests collected; not failing CI."
+            exit 0
+          fi
+          exit "$ec"

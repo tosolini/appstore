@@ -15,4 +15,5 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install -U pip
       - run: pip install -r requirements.txt
-      - run: pytest --ignore=tests/test_encryption.py
+      - run: pip install pytest
+      - run: python -m pytest

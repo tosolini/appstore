@@ -1,0 +1,60 @@
+services:
+  appstore-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: container-appstore:latest
+    container_name: container-appstore-api
+    ports:
+      - "8888:8888"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8888
+      CACHE_DIR: /app/cache
+      GIT_SYNC_INTERVAL: 604800 # 7 days in seconds
+      REPOSITORIES: |
+        [
+          {
+            "name": "CasaOS AppStore",
+            "url": "https://github.com/IceWhaleTech/CasaOS-AppStore.git",
+            "branch": "main",
+            "enabled": true
+          },
+          {
+            "name": "LinuxServer",
+            "url": "https://github.com/WisdomSky/CasaOS-LinuxServer-AppStore.git",
+            "branch": "main",
+            "enabled": false
+          },
+          {
+            "name": "BigBear",
+            "url": "https://github.com/bigbeartechworld/big-bear-casaos.git",
+            "branch": "master",
+            "enabled": false
+          }
+        ]
+      # Portainer integration - use host.docker.internal on macOS/Windows
+      PORTAINER_BASE_URL: "${PORTAINER_BASE_URL:-http://host.docker.internal:9443}" # Default to host.docker.internal for local testing
+      PORTAINER_API_KEY: "${PORTAINER_API_KEY}" # Set this in your .env file or directly here for testing
+      PORTAINER_ENDPOINT_ID: "${PORTAINER_ENDPOINT_ID:-3}" # usually 3 for Docker Desktop, but verify in Portainer under "Endpoints"
+      PORTAINER_VERIFY_SSL: "${PORTAINER_VERIFY_SSL}" # Set to "true" in production with valid SSL certs
+      MOCK_MODE: "${MOCK_MODE}" # Set to "true" to enable mock mode for testing without Portainer
+      DEBUG_MODE: "${DEBUG_MODE}" # Set to "true" to enable debug logging
+
+    volumes:
+      - appstore_cache:/app/cache
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+
+    restart: unless-stopped
+
+    networks:
+      - container-appstore-network
+
+volumes:
+  appstore_cache:
+    driver: local
+
+networks:
+  container-appstore-network:
+    driver: bridge

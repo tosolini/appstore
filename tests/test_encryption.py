@@ -9,6 +9,11 @@ import requests
 import os
 import sys
 from pathlib import Path
+import pytest
+
+# Skip this test in CI environments (requires docker-compose services)
+if os.getenv("CI") or os.getenv("GITHUB_ACTIONS"):
+    pytest.skip("Skipping integration tests in CI (requires running services)", allow_module_level=True)
 
 # Configuration
 BASE_URL = "http://localhost:8888"

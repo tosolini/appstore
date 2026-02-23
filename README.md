@@ -138,7 +138,7 @@ Access at: http://localhost:8888
 docker run -p 8888:8888 \
   -e PORTAINER_BASE_URL=https://host.docker.internal:9443 \
   -e PORTAINER_API_KEY=your_key \
-  container-appstore:latest
+  ghcr.io/tosolini/appstore:latest
 ```
 
 ### Option 3: Local Development
@@ -172,7 +172,7 @@ python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8888
 ```yaml
 services:
   appstore:
-    image: container-appstore:latest
+    image: ghcr.io/tosolini/appstore:latest
     ports:
       - "8888:8888"
     environment:

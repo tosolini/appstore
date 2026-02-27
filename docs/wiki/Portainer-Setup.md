@@ -55,7 +55,7 @@ On **Docker Desktop**:
 - The URL might look like: `https://localhost:9443/#/endpoints/3`
 - Your endpoint ID is `3` (the number at the end)
 
-You can also query via API:
+You can also query via APIn (example, change host and api key):
 ```bash
 curl -k -X GET "https://localhost:9443/api/endpoints" \
   -H "X-API-Key: ptr_eKkTnro5Q57fTUxcCtj7CZRiap/TV2uJ376PH0VI174="
@@ -74,8 +74,8 @@ services:
   appstore-api:
     environment:
       # Portainer Configuration
-      PORTAINER_BASE_URL: https://host.docker.internal:9443
-      PORTAINER_API_KEY: ptr_eKkTnro5Q57fTUxcCtj7CZRiap/TV2uJ376PH0VI174=
+      PORTAINER_BASE_URL: https://host.docker.internal:9443 #or your ip:port
+      PORTAINER_API_KEY: ptr_eKkTnro5Q57fTUxcCtj7CZRiap/TV2uJ376PH0VI174= #change to your api key
       PORTAINER_ENDPOINT_ID: 3
       PORTAINER_VERIFY_SSL: "false"  # For self-signed certificates
       MOCK_MODE: "false"

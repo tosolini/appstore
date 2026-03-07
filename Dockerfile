@@ -1,5 +1,5 @@
 # Stage 1: Build Vue 3 frontend
-FROM node:20.11-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /frontend
 
@@ -18,7 +18,7 @@ COPY frontend/vite.config.js ./vite.config.js
 RUN npm run build
 
 # Stage 2: Python runtime with FastAPI
-FROM python:3.11-slim
+FROM python:3.11.15-slim
 
 WORKDIR /app
 

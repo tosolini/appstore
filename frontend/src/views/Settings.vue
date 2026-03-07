@@ -73,6 +73,34 @@
         </div>
       </div>
 
+      <!-- App Display Settings -->
+      <div class="settings-section">
+        <h2>App Display Settings</h2>
+        <p class="text-muted">Customize how apps are displayed in the home page</p>
+
+        <form @submit.prevent="saveDisplaySettings" class="display-form">
+          <div class="form-group">
+            <label>Apps per page</label>
+            <input 
+              v-model.number="displaySettings.appsPerPage" 
+              type="number" 
+              min="1" 
+              max="100"
+              placeholder="10"
+            >
+            <small class="hint">Number of apps to display per page (default: 10)</small>
+          </div>
+
+          <button type="submit" class="btn-save">
+            Save Display Settings
+          </button>
+
+          <div v-if="displaySaveStatus" :class="['status', displaySaveStatus.success ? 'success' : 'error']">
+            {{ displaySaveStatus.message }}
+          </div>
+        </form>
+      </div>
+
       <!-- Mock Stacks Viewer (only in mock mode) -->
       <div v-if="portainerMode === 'mock'" class="settings-section">
         <h2>Mock Deployment Stacks</h2>
@@ -242,11 +270,16 @@ export default {
         cache_dir: '',
         initialized: false
       },
-      clearingCache: false
+      clearingCache: false,
+      displaySettings: {
+        appsPerPage: 12
+      },
+      displaySaveStatus: null
     }
   },
   mounted() {
     this.loadSettings()
+    this.loadDisplaySettings()
   },
   methods: {
     async loadSettings() {
@@ -478,6 +511,35 @@ export default {
         minute: '2-digit',
         second: '2-digit'
       })
+    },
+
+    loadDisplaySettings() {
+      const saved = localStorage.getItem('appDisplaySettings')
+      if (saved) {
+        try {
+          this.displaySettings = JSON.parse(saved)
+        } catch (e) {
+          console.error('Error parsing display settings:', e)
+        }
+      }
+    },
+
+    saveDisplaySettings() {
+      try {
+        localStorage.setItem('appDisplaySettings', JSON.stringify(this.displaySettings))
+        this.displaySaveStatus = {
+          success: true,
+          message: 'Display settings saved successfully!'
+        }
+        setTimeout(() => {
+          this.displaySaveStatus = null
+        }, 3000)
+      } catch (error) {
+        this.displaySaveStatus = {
+          success: false,
+          message: 'Error saving display settings'
+        }
+      }
     }
   }
 }

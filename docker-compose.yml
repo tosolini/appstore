@@ -18,18 +18,28 @@ services:
             "name": "CasaOS AppStore",
             "url": "https://github.com/IceWhaleTech/CasaOS-AppStore.git",
             "branch": "main",
+            "priority": 100,
             "enabled": true
           },
           {
             "name": "LinuxServer",
             "url": "https://github.com/WisdomSky/CasaOS-LinuxServer-AppStore.git",
             "branch": "main",
+            "priority": 98,
             "enabled": false
           },
           {
             "name": "BigBear",
             "url": "https://github.com/bigbeartechworld/big-bear-casaos.git",
             "branch": "master",
+            "priority": 96,
+            "enabled": false
+          },
+          {
+            "name": "Coolstore",
+            "url": "https://github.com/WisdomSky/CasaOS-Coolstore.git",
+            "branch": "main",
+            "priority": 95,
             "enabled": false
           }
         ]

@@ -59,10 +59,37 @@ export default {
     }
   },
   mounted() {
+    this.loadDisplaySettings()
     this.loadCategories()
     this.loadApps()
   },
+  watch: {
+    '$route'(to, from) {
+      // Quando torniamo alla home da un'altra pagina, ricarica le impostazioni
+      if (to.path === '/' && from.path !== '/') {
+        const previousLimit = this.limit
+        this.loadDisplaySettings()
+        // Se il limite è cambiato, ricarica le app
+        if (previousLimit !== this.limit) {
+          this.loadApps()
+        }
+      }
+    }
+  },
   methods: {
+    loadDisplaySettings() {
+      const saved = localStorage.getItem('appDisplaySettings')
+      if (saved) {
+        try {
+          const settings = JSON.parse(saved)
+          if (settings.appsPerPage) {
+            this.limit = settings.appsPerPage
+          }
+        } catch (e) {
+          console.error('Error parsing display settings:', e)
+        }
+      }
+    },
     async loadCategories() {
       try {
         const response = await axios.get('/api/categories')
@@ -76,7 +103,7 @@ export default {
       this.loading = true
       this.offset = 0
       try {
-        let url = `/apps?limit=${this.limit}&offset=${this.offset}`
+        let url = `/apps?limit=${this.limit}&offset=${this.offset}&random=true`
         if (this.selectedCategory) {
           url += `&category=${this.selectedCategory}`
         }
@@ -112,7 +139,7 @@ export default {
     async loadMore() {
       this.offset += this.limit
       try {
-        let url = `/apps?limit=${this.limit}&offset=${this.offset}`
+        let url = `/apps?limit=${this.limit}&offset=${this.offset}&random=true`
         if (this.selectedCategory) {
           url += `&category=${this.selectedCategory}`
         }

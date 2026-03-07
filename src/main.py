@@ -301,7 +301,8 @@ async def list_apps(
     category: Optional[str] = Query(None),
     repository: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0)) -> dict:
+    offset: int = Query(0, ge=0),
+    random: bool = Query(False)) -> dict:
     """
     List apps with optional filters
     """
@@ -319,6 +320,11 @@ async def list_apps(
     
     if repository:
         filtered = [a for a in filtered if a.repository_source.lower() == repository.lower()]
+    
+    # Randomize if requested
+    if random:
+        import random as rnd
+        rnd.shuffle(filtered)
     
     # Paginate
     total = len(filtered)

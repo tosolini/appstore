@@ -30,7 +30,7 @@ The Container AppStore can deploy applications to Portainer automatically throug
 5. Enter a name for the token (e.g., "AppStore Integration")
 6. Click **"Generate"**
 
-![Portainer API Key Generation](https://imgur.com/example.png)
+![Portainer API Key Generation](https://raw.githubusercontent.com/tosolini/appstore/main/docs/screenshots/portainer_apitoken.jpeg)
 
 7. **Copy the token immediately** - you won't be able to see it again!
 8. Store it securely (e.g., in a password manager)

@@ -6,6 +6,7 @@ A modern GUI application for discovering, managing, and deploying containerized 
 
 - 🎨 **Modern Web UI** - Beautiful, intuitive interface for browsing and deploying apps
 - 🔍 **Smart Discovery** - Search, filter, and browse apps from multiple repositories
+- 🔍 **Added randomizer app shuffle
 - 🚀 **One-Click Deploy** - Deploy apps to Portainer with custom configuration
 - 📦 **App Repositories** - Support for multiple app sources (CasaOS, LinuxServer, custom repos)
 - 🔄 **Automatic Sync** - Keep your app catalog up-to-date

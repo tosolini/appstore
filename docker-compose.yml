@@ -59,12 +59,12 @@ services:
     restart: unless-stopped
 
     networks:
-      - container-appstore-network
+      - appstore-net
 
 volumes:
   appstore_cache:
     driver: local
 
 networks:
-  container-appstore-network:
+  appstore-net:
     driver: bridge

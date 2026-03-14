@@ -1,0 +1,13 @@
+services:
+  appstore-mcp:
+    build: ./appstore-mcp
+    container_name: appstore-mcp
+    # niente ports esterne, usa solo stdio
+    depends_on:
+      - appstore
+    networks:
+      - appstore-net
+
+networks:
+  appstore-net:
+    name: appstore-net

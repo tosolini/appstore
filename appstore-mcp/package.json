@@ -1,0 +1,17 @@
+{
+  "name": "appstore-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.4",
+    "typescript": "5.6.3"
+  }
+}
+
+

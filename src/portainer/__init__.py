@@ -149,15 +149,14 @@ class PortainerClient:
     def _apply_env_overrides(compose_content: str, overrides: Dict[str, str]) -> str:
         """
         Apply environment variable overrides to compose content
-        Simple implementation: regex-based replacement
         """
         import re
         
         result = compose_content
         
         for key, value in overrides.items():
-            # Pattern: KEY: value oppure KEY=$VAR
-            pattern = f"({key}:)\\s*[^\\n]+"
+            escaped_key = re.escape(key)
+            pattern = f"({escaped_key}:)\\s*[^\\n]+"
             replacement = f"{key}: {value}"
             result = re.sub(pattern, replacement, result)
         

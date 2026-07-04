@@ -214,7 +214,8 @@ class ArcaneClient:
         import re
         result = compose_content
         for key, value in overrides.items():
-            pattern = f"({key}:)\\s*[^\\n]+"
+            escaped_key = re.escape(key)
+            pattern = f"({escaped_key}:)\\s*[^\\n]+"
             replacement = f"{key}: {value}"
             result = re.sub(pattern, replacement, result)
         return result

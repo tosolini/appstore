@@ -8,7 +8,16 @@
       <div class="app-header">
         <img :src="app.icon" :alt="app.title" class="app-icon">
         <div class="app-info">
-          <h1>{{ app.title }}</h1>
+          <h1>
+            {{ app.title }}
+            <button 
+              class="fav-btn-detail" 
+              :class="{ favorited: isFavorite }"
+              @click="toggleFavorite"
+              :title="isFavorite ? 'Remove from My List' : 'Add to My List'">
+              {{ isFavorite ? '♥' : '♡' }}
+            </button>
+          </h1>
           <p class="developer">by {{ app.developer }}</p>
           <p class="category">{{ app.category }}</p>
           <p class="description">{{ app.description }}</p>
@@ -50,7 +59,7 @@
       </div>
 
       <div class="deployment-section">
-        <h2>Deploy to Portainer</h2>
+        <h2>Deploy to {{ activeBackendLabel }}</h2>
         <DeployForm 
           :app-id="app.app_id"
           :schema="parameters"
@@ -102,13 +111,19 @@ export default {
       loading: true,
       copyMessage: false,
       lightboxOpen: false,
-      currentImageIndex: 0
+      currentImageIndex: 0,
+      activeBackend: 'Portainer',
+      isFavorite: false
     }
   },
   mounted() {
     this.loadAppDetail()
+    this.loadBackendStatus()
   },
   computed: {
+    activeBackendLabel() {
+      return this.activeBackend.charAt(0).toUpperCase() + this.activeBackend.slice(1)
+    },
     cleanedCompose() {
       if (!this.app || !this.app.compose_content) return ''
       try {
@@ -123,6 +138,14 @@ export default {
     }
   },
   methods: {
+    async loadBackendStatus() {
+      try {
+        const response = await axios.get('/api/settings/backend')
+        this.activeBackend = response.data.active_backend
+      } catch (error) {
+        console.error('Error loading backend status:', error)
+      }
+    },
     async loadAppDetail() {
       const appId = this.$route.params.id
       try {
@@ -134,10 +157,31 @@ export default {
         this.app = appResponse.data
         this.parameters = schemaResponse.data.parameters
         this.volumes = schemaResponse.data.volumes || []
+        await this.loadFavoriteStatus()
       } catch (error) {
         console.error('Error loading app details:', error)
       } finally {
         this.loading = false
+      }
+    },
+    async loadFavoriteStatus() {
+      try {
+        const response = await axios.get('/api/favorites/ids')
+        this.isFavorite = response.data.ids.includes(this.app?.app_id)
+      } catch (error) {
+        console.error('Error loading favorite status:', error)
+      }
+    },
+    async toggleFavorite() {
+      try {
+        if (this.isFavorite) {
+          await axios.delete(`/api/favorites/${this.app.app_id}`)
+        } else {
+          await axios.post(`/api/favorites/${this.app.app_id}`)
+        }
+        this.isFavorite = !this.isFavorite
+      } catch (error) {
+        console.error('Error toggling favorite:', error)
       }
     },
     onDeploySuccess(result) {
@@ -284,6 +328,37 @@ export default {
   font-size: 2rem;
   margin-bottom: 0.5rem;
   color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.fav-btn-detail {
+  background: none;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 1.3rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.fav-btn-detail:hover {
+  transform: scale(1.1);
+  border-color: #ff4757;
+  color: #ff4757;
+}
+
+.fav-btn-detail.favorited {
+  color: #ff4757;
+  border-color: #ff4757;
+  background: rgba(255, 71, 87, 0.1);
 }
 
 .developer {

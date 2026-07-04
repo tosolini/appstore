@@ -11,12 +11,14 @@ import json
 from typing import Optional, List
 from sqlalchemy.orm import Session
 
-from src.models import App, DeployRequest, RepositoryCreate, PortainerConfigRequest
+from src.models import App, DeployRequest, RepositoryCreate, PortainerConfigRequest, ArcaneConfigRequest
 from src.git_sync import GitSync
 from src.portainer import PortainerClient
 from src.portainer.mock import MockPortainerClient
+from src.arcane import ArcaneClient
+from src.arcane.mock import MockArcaneClient
 from src.db import init_db, get_db
-from src.db.models import Repository as RepositoryModel, PortainerConfig
+from src.db.models import Repository as RepositoryModel, PortainerConfig, ArcaneConfig, FavoriteApp
 from src.parsers.compose_schema import ComposeSchema
 from src.security import get_encryption_manager
 
@@ -31,8 +33,8 @@ logger = logging.getLogger(__name__)
 # App FastAPI
 app = FastAPI(
     title="Container AppStore API",
-    description="API bridge for managing and deploying container apps via Portainer",
-    version="0.2.0"
+    description="API bridge for managing and deploying container apps via Portainer or Arcane",
+    version="1.0.0"
 )
 
 # CORS
@@ -47,7 +49,9 @@ app.add_middleware(
 # Global state
 git_sync: GitSync = None
 portainer_client: PortainerClient = None
+arcane_client: ArcaneClient = None
 scheduler: BackgroundScheduler = None
+active_backend: str = "portainer"  # "portainer" | "arcane"
 
 
 def load_config_repositories() -> list:
@@ -156,9 +160,9 @@ def init_sync():
 @app.on_event("startup")
 async def startup_event():
     """Startup: initialize components and scheduler"""
-    global git_sync, portainer_client, scheduler
+    global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API...")
+    logger.info("Starting AppStore Bridge API v1.0.0...")
     
     # Initialize database
     init_db()
@@ -172,70 +176,13 @@ async def startup_event():
     git_sync = GitSync(cache_dir)
     logger.info(f"GitSync initialized with cache dir: {cache_dir}")
     
-    # Portainer client (mock or real)
-    # Logic: if PORTAINER_MODE=mock or if forced from DB, use mock
-    # Otherwise try to connect to real Portainer
+    # Initialize both clients
+    portainer_client = _init_portainer()
+    arcane_client = _init_arcane()
     
-    portainer_mode_env = os.getenv('PORTAINER_MODE', 'auto')  # mock | real | auto (default)
-    portainer_url = os.getenv('PORTAINER_BASE_URL')
-    portainer_key = os.getenv('PORTAINER_API_KEY')
-    portainer_endpoint_id = 1
-    force_mock = False
-    
-    logger.info(f"=== Portainer Configuration Debug ===")
-    logger.info(f"PORTAINER_MODE env: {portainer_mode_env}")
-    logger.info(f"PORTAINER_BASE_URL: {portainer_url}")
-    logger.info(f"PORTAINER_API_KEY: {'***' if portainer_key else 'NOT SET'}")
-    logger.info(f"PORTAINER_ENDPOINT_ID: {os.getenv('PORTAINER_ENDPOINT_ID', 'default')}")
-    
-    # Check if DB has a forced preference
-    try:
-        from src.db import get_db_sync
-        db = get_db_sync()
-        config = db.query(PortainerConfig).first()
-        db.close()
-        
-        if config:
-            force_mock = config.force_mock_mode
-            logger.info(f"force_mock_mode from DB: {force_mock}")
-        else:
-            logger.info("No PortainerConfig in DB, using defaults")
-    except Exception as e:
-        logger.warning(f"Could not load Portainer config from DB: {e}")
-    
-    endpoint_id_env = os.getenv('PORTAINER_ENDPOINT_ID')
-    if endpoint_id_env:
-        try:
-            portainer_endpoint_id = int(endpoint_id_env)
-        except ValueError:
-            logger.warning("Invalid PORTAINER_ENDPOINT_ID, using default 1")
-    
-    # Decide whether to use mock or real
-    should_use_mock = (
-        portainer_mode_env == 'mock' or  # Explicitly mock
-        force_mock or  # Forced by DB toggle
-        not portainer_url or  # No URL configured
-        not portainer_key  # No API key configured
-    )
-    
-    logger.info(f"=== Mock Mode Decision ===")
-    logger.info(f"portainer_mode_env == 'mock': {portainer_mode_env == 'mock'}")
-    logger.info(f"force_mock from DB: {force_mock}")
-    logger.info(f"portainer_url missing: {not portainer_url}")
-    logger.info(f"portainer_key missing: {not portainer_key}")
-    logger.info(f"should_use_mock: {should_use_mock}")
-    
-    if should_use_mock:
-        portainer_client = MockPortainerClient()
-        logger.info("Portainer client (MOCK mode) initialized")
-    else:
-        # Try to connect to real Portainer
-        portainer_client = PortainerClient(portainer_url, portainer_key)
-        if portainer_client.validate_connection():
-            logger.info("Portainer client (REAL) initialized and validated")
-        else:
-            logger.warning("Portainer client validation failed - falling back to mock mode")
-            portainer_client = MockPortainerClient()
+    # Determine active backend
+    active_backend = _resolve_active_backend()
+    logger.info(f"Active backend: {active_backend}")
     
     # Scheduler
     scheduler = BackgroundScheduler()
@@ -248,6 +195,117 @@ async def startup_event():
     init_sync()
     
     logger.info("Startup complete")
+
+
+def _init_portainer():
+    """Initialize Portainer client (real or mock)"""
+    mode = os.getenv('PORTAINER_MODE', 'auto')
+    url = os.getenv('PORTAINER_BASE_URL')
+    key = os.getenv('PORTAINER_API_KEY')
+    force_mock = False
+    
+    logger.info("=== Portainer Configuration Debug ===")
+    logger.info(f"PORTAINER_MODE: {mode}")
+    logger.info(f"PORTAINER_BASE_URL: {url}")
+    logger.info(f"PORTAINER_API_KEY: {'***' if key else 'NOT SET'}")
+    
+    try:
+        from src.db import get_db_sync
+        db = get_db_sync()
+        config = db.query(PortainerConfig).first()
+        db.close()
+        if config:
+            force_mock = config.force_mock_mode
+    except Exception as e:
+        logger.warning(f"Could not load Portainer config from DB: {e}")
+    
+    should_use_mock = (mode == 'mock' or force_mock or not url or not key)
+    
+    if should_use_mock:
+        client = MockPortainerClient()
+        logger.info("Portainer client (MOCK mode) initialized")
+        return client
+    
+    client = PortainerClient(url, key)
+    if client.validate_connection():
+        logger.info("Portainer client (REAL) initialized and validated")
+        return client
+    
+    logger.warning("Portainer connection failed - using mock")
+    return MockPortainerClient()
+
+
+def _init_arcane():
+    """Initialize Arcane client (real or mock)"""
+    mode = os.getenv('ARCANE_MODE', 'auto')
+    url = os.getenv('ARCANE_BASE_URL')
+    key = os.getenv('ARCANE_API_KEY')
+    env_id = 0
+    force_mock = False
+    
+    logger.info("=== Arcane Configuration Debug ===")
+    logger.info(f"ARCANE_MODE: {mode}")
+    logger.info(f"ARCANE_BASE_URL: {url}")
+    logger.info(f"ARCANE_API_KEY: {'***' if key else 'NOT SET'}")
+    
+    env_id_env = os.getenv('ARCANE_ENVIRONMENT_ID')
+    if env_id_env:
+        try:
+            env_id = int(env_id_env)
+        except ValueError:
+            logger.warning("Invalid ARCANE_ENVIRONMENT_ID, using default 0")
+    
+    try:
+        from src.db import get_db_sync
+        db = get_db_sync()
+        config = db.query(ArcaneConfig).first()
+        db.close()
+        if config:
+            force_mock = config.force_mock_mode
+    except Exception as e:
+        logger.warning(f"Could not load Arcane config from DB: {e}")
+    
+    should_use_mock = (mode == 'mock' or force_mock or not url or not key)
+    
+    if should_use_mock:
+        client = MockArcaneClient()
+        logger.info("Arcane client (MOCK mode) initialized")
+        return client
+    
+    client = ArcaneClient(url, key, env_id)
+    if client.validate_connection():
+        logger.info("Arcane client (REAL) initialized and validated")
+        return client
+    
+    logger.warning("Arcane connection failed - using mock")
+    return MockArcaneClient()
+
+
+def _resolve_active_backend():
+    """Resolve which backend to use as active"""
+    backend_env = os.getenv('ACTIVE_BACKEND', 'auto')
+    
+    if backend_env in ('portainer', 'arcane'):
+        return backend_env
+    
+    # Auto-detect: prefer Arcane if configured and connected, else Portainer
+    try:
+        from src.db import get_db_sync
+        db = get_db_sync()
+        config = db.query(ArcaneConfig).first()
+        if config and config.active_backend:
+            return config.active_backend
+        db.close()
+    except Exception:
+        pass
+    
+    # Check which real clients are available
+    if isinstance(arcane_client, ArcaneClient) and arcane_client.validate_connection():
+        return "arcane"
+    if isinstance(portainer_client, PortainerClient) and portainer_client.validate_connection():
+        return "portainer"
+    
+    return "portainer"
 
 
 @app.on_event("shutdown")
@@ -269,10 +327,19 @@ async def health_check() -> dict:
     if portainer_client:
         portainer_ok = portainer_client.validate_connection()
     
+    arcane_ok = True
+    if arcane_client:
+        arcane_ok = arcane_client.validate_connection()
+    
+    overall_ok = portainer_ok or arcane_ok
+    
     return {
-        "status": "ok" if portainer_ok else "degraded",
+        "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
+        "version": "1.0.0",
+        "active_backend": active_backend,
         "portainer_connected": portainer_ok,
+        "arcane_connected": arcane_ok,
         "apps_loaded": len(git_sync.get_all_apps()) if git_sync else 0
     }
 
@@ -492,11 +559,8 @@ async def get_app_schema(app_id: str) -> dict:
 async def deploy_app_mock(app_id: str, request: DeployRequest) -> dict:
     """
     Mock deploy (for testing)
-    Does not send to Portainer, only tracks in-memory
+    Uses the mock client of the active or specified backend
     """
-    
-    if not isinstance(portainer_client, MockPortainerClient):
-        return await deploy_app(app_id, request)
     
     if not git_sync:
         raise HTTPException(status_code=503, detail="AppStore not initialized")
@@ -506,18 +570,32 @@ async def deploy_app_mock(app_id: str, request: DeployRequest) -> dict:
         raise HTTPException(status_code=404, detail="App not found")
     
     request.app_id = app_id
+    backend = request.backend or active_backend
     
-    # Deploy via mock
-    response = portainer_client.deploy_stack(
-        stack_name=request.stack_name,
-        endpoint_id=request.portainer_endpoint_id,
-        compose_content=app.compose_content,
-        env_overrides=request.env_overrides,
-        volume_overrides=request.volume_overrides,
-        namespace=request.portainer_namespace
-    )
-    
-    return response.model_dump()
+    if backend == "arcane":
+        if isinstance(arcane_client, MockArcaneClient):
+            response = arcane_client.deploy_project(
+                project_name=request.stack_name,
+                compose_content=app.compose_content,
+                env_overrides=request.env_overrides,
+                volume_overrides=request.volume_overrides
+            )
+            return response.model_dump()
+        else:
+            return await _deploy_to_arcane(app, request)
+    else:
+        if isinstance(portainer_client, MockPortainerClient):
+            response = portainer_client.deploy_stack(
+                stack_name=request.stack_name,
+                endpoint_id=request.portainer_endpoint_id,
+                compose_content=app.compose_content,
+                env_overrides=request.env_overrides,
+                volume_overrides=request.volume_overrides,
+                namespace=request.portainer_namespace
+            )
+            return response.model_dump()
+        else:
+            return await _deploy_to_portainer(app, request)
 
 
 @app.get("/api/repositories")
@@ -688,11 +766,8 @@ async def sync_repository(repo_id: int, db: Session = Depends(get_db)) -> dict:
 @app.post("/apps/{app_id}/deploy")
 async def deploy_app(app_id: str, request: DeployRequest) -> dict:
     """
-    Deploy app to Portainer
+    Deploy app to active backend (Portainer or Arcane)
     """
-    
-    if not portainer_client:
-        raise HTTPException(status_code=503, detail="Portainer client not configured")
     
     if not git_sync:
         raise HTTPException(status_code=503, detail="AppStore not initialized")
@@ -701,10 +776,22 @@ async def deploy_app(app_id: str, request: DeployRequest) -> dict:
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
-    # Override request app_id with the one in URL
     request.app_id = app_id
+    backend = request.backend or active_backend
     
-    # Use env-configured endpoint ID
+    if backend == "arcane":
+        return await _deploy_to_arcane(app, request)
+    else:
+        return await _deploy_to_portainer(app, request)
+
+
+async def _deploy_to_portainer(app, request):
+    """Deploy app via Portainer"""
+    global portainer_client
+    
+    if not portainer_client:
+        raise HTTPException(status_code=503, detail="Portainer client not configured")
+    
     endpoint_id = os.getenv('PORTAINER_ENDPOINT_ID')
     if endpoint_id:
         try:
@@ -714,7 +801,6 @@ async def deploy_app(app_id: str, request: DeployRequest) -> dict:
     else:
         endpoint_id = request.portainer_endpoint_id or 1
     
-    # Deploy via Portainer
     response = portainer_client.deploy_stack(
         stack_name=request.stack_name,
         endpoint_id=endpoint_id,
@@ -723,6 +809,39 @@ async def deploy_app(app_id: str, request: DeployRequest) -> dict:
         volume_overrides=request.volume_overrides,
         namespace=request.portainer_namespace
     )
+    
+    return response.model_dump()
+
+
+async def _deploy_to_arcane(app, request):
+    """Deploy app via Arcane"""
+    global arcane_client
+    
+    if not arcane_client:
+        raise HTTPException(status_code=503, detail="Arcane client not configured")
+    
+    env_id = os.getenv('ARCANE_ENVIRONMENT_ID')
+    if env_id:
+        try:
+            env_id = int(env_id)
+        except ValueError:
+            env_id = request.arcane_environment_id or 0
+    else:
+        env_id = request.arcane_environment_id or 0
+    
+    # Temporarily set environment_id on the client for this deployment
+    original_env_id = arcane_client.environment_id
+    arcane_client.environment_id = env_id
+    
+    try:
+        response = arcane_client.deploy_project(
+            project_name=request.stack_name,
+            compose_content=app.compose_content,
+            env_overrides=request.env_overrides,
+            volume_overrides=request.volume_overrides
+        )
+    finally:
+        arcane_client.environment_id = original_env_id
     
     return response.model_dump()
 
@@ -831,6 +950,269 @@ async def toggle_portainer_mode(db: Session = Depends(get_db)) -> dict:
         db.rollback()
         logger.error(f"Error toggling portainer mode: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# --- Favorites ---
+
+@app.get("/api/favorites")
+async def list_favorites(db: Session = Depends(get_db)) -> dict:
+    """List all favorite app IDs"""
+    favorites = db.query(FavoriteApp).order_by(FavoriteApp.created_at.desc()).all()
+    return {
+        "favorites": [
+            {
+                "app_id": f.app_id,
+                "created_at": f.created_at.isoformat() if f.created_at else None
+            }
+            for f in favorites
+        ]
+    }
+
+
+@app.get("/api/favorites/ids")
+async def get_favorite_ids(db: Session = Depends(get_db)) -> dict:
+    """Get set of favorite app IDs (for UI to check which are favorited)"""
+    ids = [f.app_id for f in db.query(FavoriteApp).all()]
+    return {"ids": ids}
+
+
+@app.post("/api/favorites/{app_id}")
+async def add_favorite(app_id: str, db: Session = Depends(get_db)) -> dict:
+    """Add an app to favorites"""
+    existing = db.query(FavoriteApp).filter(FavoriteApp.app_id == app_id).first()
+    if existing:
+        return {"success": True, "message": "Already in favorites"}
+
+    favorite = FavoriteApp(app_id=app_id)
+    db.add(favorite)
+    db.commit()
+    logger.info(f"App {app_id} added to favorites")
+    return {"success": True, "message": "Added to favorites"}
+
+
+@app.delete("/api/favorites/{app_id}")
+async def remove_favorite(app_id: str, db: Session = Depends(get_db)) -> dict:
+    """Remove an app from favorites"""
+    favorite = db.query(FavoriteApp).filter(FavoriteApp.app_id == app_id).first()
+    if not favorite:
+        return {"success": True, "message": "Not in favorites"}
+
+    db.delete(favorite)
+    db.commit()
+    logger.info(f"App {app_id} removed from favorites")
+    return {"success": True, "message": "Removed from favorites"}
+
+
+# --- Backend Selection ---
+
+@app.get("/api/settings/backend")
+async def get_backend_status(db: Session = Depends(get_db)) -> dict:
+    """Get current backend status"""
+    global portainer_client, arcane_client, active_backend
+
+    portainer_real = isinstance(portainer_client, PortainerClient)
+    arcane_real = isinstance(arcane_client, ArcaneClient)
+
+    portainer_configured = bool(os.getenv('PORTAINER_BASE_URL') and os.getenv('PORTAINER_API_KEY'))
+    arcane_configured = bool(os.getenv('ARCANE_BASE_URL') and os.getenv('ARCANE_API_KEY'))
+
+    try:
+        config = db.query(ArcaneConfig).first()
+        db_preference = config.active_backend if config else None
+    except Exception:
+        db_preference = None
+
+    return {
+        "active_backend": active_backend,
+        "available_backends": {
+            "portainer": {
+                "configured": portainer_configured,
+                "connected": portainer_real and portainer_client.validate_connection(),
+                "mode": "real" if portainer_real else "mock"
+            },
+            "arcane": {
+                "configured": arcane_configured,
+                "connected": arcane_real and arcane_client.validate_connection(),
+                "mode": "real" if arcane_real else "mock"
+            }
+        },
+        "db_preference": db_preference
+    }
+
+
+@app.post("/api/settings/backend/select")
+async def select_backend(request: Request, db: Session = Depends(get_db)) -> dict:
+    """Select active backend (portainer or arcane)"""
+    global active_backend
+
+    import json
+    body = await request.body()
+    data = json.loads(body)
+    backend = data.get('backend', 'portainer')
+
+    if backend not in ('portainer', 'arcane'):
+        raise HTTPException(status_code=400, detail="Backend must be 'portainer' or 'arcane'")
+
+    active_backend = backend
+
+    # Persist preference to DB
+    try:
+        config = db.query(ArcaneConfig).first()
+        if not config:
+            config = ArcaneConfig(base_url="", api_key_encrypted="")
+            db.add(config)
+        config.active_backend = backend
+        config.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Could not persist backend preference: {e}")
+
+    logger.info(f"Active backend switched to: {backend}")
+    return {
+        "success": True,
+        "active_backend": backend,
+        "message": f"Active backend set to {backend.upper()}"
+    }
+
+
+# --- Arcane Settings ---
+
+@app.get("/api/settings/arcane")
+async def get_arcane_config() -> dict:
+    """Get Arcane configuration from env"""
+    base_url = os.getenv('ARCANE_BASE_URL')
+    api_key = os.getenv('ARCANE_API_KEY')
+    env_id = os.getenv('ARCANE_ENVIRONMENT_ID')
+
+    try:
+        env_id_value = int(env_id) if env_id else 0
+    except ValueError:
+        env_id_value = 0
+
+    is_mock = isinstance(arcane_client, MockArcaneClient)
+
+    return {
+        "mode": "mock" if is_mock else "real",
+        "base_url": base_url or "",
+        "environment_id": env_id_value,
+        "is_configured": bool(base_url and api_key),
+        "last_validated": None,
+        "api_key": "***" if api_key else None,
+        "read_only": True,
+        "config_source": "env"
+    }
+
+
+@app.post("/api/settings/arcane")
+async def set_arcane_config(
+    request: ArcaneConfigRequest,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Arcane configuration managed via env vars"""
+    raise HTTPException(
+        status_code=403,
+        detail="Arcane configuration is managed via docker-compose.yml env vars. Update ARCANE_BASE_URL/API_KEY and restart."
+    )
+
+
+@app.get("/api/settings/arcane-mode")
+async def get_arcane_mode(db: Session = Depends(get_db)) -> dict:
+    """Get current Arcane mode (mock or real)"""
+    global arcane_client
+
+    try:
+        config = db.query(ArcaneConfig).first()
+        base_url = os.getenv('ARCANE_BASE_URL')
+        api_key = os.getenv('ARCANE_API_KEY')
+        configured = bool(base_url and api_key)
+
+        is_mock = isinstance(arcane_client, MockArcaneClient)
+        force_mock = config.force_mock_mode if config else False
+
+        return {
+            "current_mode": "mock" if is_mock else "real",
+            "force_mock_mode": force_mock,
+            "can_switch_to_real": configured,
+            "arcane_configured": configured
+        }
+    except Exception as e:
+        logger.error(f"Error getting arcane mode: {e}")
+        return {
+            "current_mode": "mock",
+            "force_mock_mode": False,
+            "can_switch_to_real": False,
+            "arcane_configured": False
+        }
+
+
+@app.post("/api/settings/arcane-mode/toggle")
+async def toggle_arcane_mode(db: Session = Depends(get_db)) -> dict:
+    """Toggle between mock and real mode for Arcane"""
+    global arcane_client
+
+    try:
+        config = db.query(ArcaneConfig).first()
+        if not config:
+            config = ArcaneConfig(base_url="", api_key_encrypted="", force_mock_mode=True)
+            db.add(config)
+
+        new_force_mock = not config.force_mock_mode
+        config.force_mock_mode = new_force_mock
+        config.updated_at = datetime.utcnow()
+        db.commit()
+
+        is_mock = isinstance(arcane_client, MockArcaneClient)
+
+        return {
+            "success": True,
+            "message": f"Arcane mode preference saved to {('mock' if new_force_mock else 'real')}. Restart the app for changes to take effect.",
+            "force_mock_mode": new_force_mock,
+            "current_mode": "mock" if is_mock else "real",
+            "note": "Restart required for full effect"
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error toggling arcane mode: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# --- Arcane Mock Endpoints ---
+
+@app.get("/api/mock/arcane/projects")
+async def list_arcane_mock_projects() -> dict:
+    """List projects in mock Arcane (only if in mock mode)"""
+    if not isinstance(arcane_client, MockArcaneClient):
+        raise HTTPException(status_code=400, detail="Arcane not in mock mode")
+
+    projects = arcane_client.list_projects()
+    stats = arcane_client.get_stats()
+
+    return {
+        "mode": "mock",
+        "backend": "arcane",
+        "stats": stats,
+        "projects": projects
+    }
+
+
+@app.post("/api/mock/arcane/projects/{project_id}/force-error")
+async def arcane_mock_force_error(project_id: str, error_message: Optional[str] = None) -> dict:
+    """Force error on next deploy for Arcane mock testing"""
+    if not isinstance(arcane_client, MockArcaneClient):
+        raise HTTPException(status_code=400, detail="Arcane not in mock mode")
+
+    arcane_client.force_error(error_message)
+    return {"message": f"Arcane mock error forced: {error_message or 'default'}"}
+
+
+@app.post("/api/mock/arcane/reset")
+async def arcane_mock_reset() -> dict:
+    """Reset mock Arcane state"""
+    if not isinstance(arcane_client, MockArcaneClient):
+        raise HTTPException(status_code=400, detail="Arcane not in mock mode")
+
+    arcane_client.reset()
+    return {"message": "Mock Arcane state reset"}
 
 
 @app.post("/api/settings/cache/clear")

@@ -16,14 +16,35 @@
       </select>
     </div>
 
+    <div class="view-toggle">
+      <button 
+        :class="['toggle-btn', { active: viewMode === 'all' }]" 
+        @click="switchView('all')">
+        All Apps ({{ filteredTotal }})
+      </button>
+      <button 
+        :class="['toggle-btn', { active: viewMode === 'favorites' }]" 
+        @click="switchView('favorites')">
+        My List ({{ favoriteIds.size }})
+      </button>
+    </div>
+
     <div v-if="loading" class="loading">Loading apps...</div>
     
-    <div v-else-if="apps.length === 0" class="no-results">
-      No apps found
+    <div v-else-if="displayApps.length === 0" class="no-results">
+      <template v-if="viewMode === 'favorites'">No favorited apps yet. Browse and add some!</template>
+      <template v-else>No apps found</template>
     </div>
     
     <div v-else class="apps-grid">
-      <div v-for="app in apps" :key="app.app_id" class="app-card">
+      <div v-for="app in displayApps" :key="app.app_id" class="app-card">
+        <button 
+          class="fav-btn" 
+          :class="{ favorited: favoriteIds.has(app.app_id) }"
+          @click="toggleFavorite(app.app_id)"
+          :title="favoriteIds.has(app.app_id) ? 'Remove from My List' : 'Add to My List'">
+          {{ favoriteIds.has(app.app_id) ? '♥' : '♡' }}
+        </button>
         <img :src="app.icon" :alt="app.title" class="app-icon">
         <h3>{{ app.title }}</h3>
         <p class="app-dev">{{ app.developer }}</p>
@@ -35,7 +56,7 @@
       </div>
     </div>
 
-    <div v-if="totalApps > apps.length" class="pagination">
+    <div v-if="viewMode === 'all' && hasMore" class="pagination">
       <button @click="loadMore" class="btn-load-more">Load More</button>
     </div>
   </div>
@@ -49,27 +70,51 @@ export default {
   data() {
     return {
       apps: [],
+      allApps: [],
       categories: [],
       searchQuery: '',
       selectedCategory: '',
+      viewMode: 'all',
+      favoriteIds: new Set(),
       loading: true,
       totalApps: 0,
       offset: 0,
-      limit: 12
+      limit: 12,
+      pageSize: 12
+    }
+  },
+  computed: {
+    filteredApps() {
+      if (this.viewMode === 'favorites') {
+        return this.allApps.filter(a => this.favoriteIds.has(a.app_id))
+      }
+      return this.allApps
+    },
+    displayApps() {
+      if (this.viewMode === 'favorites') {
+        return this.filteredApps
+      }
+      return this.apps
+    },
+    filteredTotal() {
+      return this.allApps.length
+    },
+    hasMore() {
+      return this.offset < this.allApps.length
     }
   },
   mounted() {
     this.loadDisplaySettings()
     this.loadCategories()
+    this.loadFavorites()
     this.loadApps()
   },
   watch: {
     '$route'(to, from) {
-      // Quando torniamo alla home da un'altra pagina, ricarica le impostazioni
       if (to.path === '/' && from.path !== '/') {
+        this.loadFavorites()
         const previousLimit = this.limit
         this.loadDisplaySettings()
-        // Se il limite è cambiato, ricarica le app
         if (previousLimit !== this.limit) {
           this.loadApps()
         }
@@ -99,20 +144,32 @@ export default {
         this.categories = []
       }
     },
+    async loadFavorites() {
+      try {
+        const response = await axios.get('/api/favorites/ids')
+        this.favoriteIds = new Set(response.data.ids)
+      } catch (error) {
+        console.error('Error loading favorites:', error)
+      }
+    },
     async loadApps() {
       this.loading = true
       this.offset = 0
       try {
-        let url = `/apps?limit=${this.limit}&offset=${this.offset}&random=true`
+        let url = `/apps?limit=1000&offset=0&random=true`
         if (this.selectedCategory) {
           url += `&category=${this.selectedCategory}`
         }
         
         const response = await axios.get(url)
-        this.apps = response.data.apps
+        this.allApps = response.data.apps
         this.totalApps = response.data.total
+        this.pageSize = this.limit
+        this.apps = this.allApps.slice(0, this.pageSize)
+        this.offset = this.pageSize
       } catch (error) {
         console.error('Error loading apps:', error)
+        this.allApps = []
         this.apps = []
       } finally {
         this.loading = false
@@ -127,28 +184,42 @@ export default {
       this.loading = true
       try {
         const response = await axios.get(`/apps/search?q=${this.searchQuery}`)
-        this.apps = response.data.apps
+        this.allApps = response.data.apps
         this.totalApps = response.data.results_count
+        this.apps = this.allApps.slice(0, this.limit)
+        this.offset = this.limit
       } catch (error) {
         console.error('Error searching apps:', error)
+        this.allApps = []
         this.apps = []
       } finally {
         this.loading = false
       }
     },
-    async loadMore() {
-      this.offset += this.limit
-      try {
-        let url = `/apps?limit=${this.limit}&offset=${this.offset}&random=true`
-        if (this.selectedCategory) {
-          url += `&category=${this.selectedCategory}`
-        }
-        
-        const response = await axios.get(url)
-        this.apps = [...this.apps, ...response.data.apps]
-      } catch (error) {
-        console.error('Error loading more apps:', error)
+    switchView(mode) {
+      this.viewMode = mode
+      if (mode === 'favorites') {
+        this.loadFavorites()
       }
+    },
+    async toggleFavorite(appId) {
+      try {
+        if (this.favoriteIds.has(appId)) {
+          await axios.delete(`/api/favorites/${appId}`)
+          this.favoriteIds.delete(appId)
+        } else {
+          await axios.post(`/api/favorites/${appId}`)
+          this.favoriteIds.add(appId)
+        }
+        this.favoriteIds = new Set(this.favoriteIds)
+      } catch (error) {
+        console.error('Error toggling favorite:', error)
+      }
+    },
+    loadMore() {
+      const nextBatch = this.allApps.slice(this.offset, this.offset + this.limit)
+      this.apps = [...this.apps, ...nextBatch]
+      this.offset += this.limit
     },
     truncate(text, length) {
       if (text.length <= length) return text
@@ -166,7 +237,36 @@ export default {
 .filters {
   display: flex;
   gap: 1rem;
-  margin-bottom: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.toggle-btn {
+  padding: 0.5rem 1.25rem;
+  border: 2px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text-primary);
+}
+
+.toggle-btn.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
 }
 
 .search-input,
@@ -199,8 +299,9 @@ export default {
 .loading,
 .no-results {
   text-align: center;
-  padding: 2rem;
+  padding: 3rem 2rem;
   color: var(--color-text-secondary);
+  font-size: 1.1rem;
 }
 
 .apps-grid {
@@ -219,11 +320,46 @@ export default {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border);
+  position: relative;
 }
 
 .app-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
+}
+
+.fav-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 2;
+  line-height: 1;
+}
+
+.fav-btn:hover {
+  transform: scale(1.15);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.fav-btn.favorited {
+  color: #ff4757;
+  background: rgba(255, 71, 87, 0.25);
+}
+
+.fav-btn.favorited:hover {
+  background: rgba(255, 71, 87, 0.4);
 }
 
 .app-icon {

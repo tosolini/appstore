@@ -57,23 +57,26 @@ class App(BaseModel):
 
 
 class DeployRequest(BaseModel):
-    """App deployment request on Portainer"""
+    """App deployment request"""
     app_id: Optional[str] = None  # Optional, assigned from endpoint path
     stack_name: str
-    portainer_endpoint_id: int
+    backend: str = "portainer"  # "portainer" | "arcane"
+    portainer_endpoint_id: int = 1
     portainer_namespace: Optional[str] = None
-    # Parametri opzionali per override compose
+    arcane_environment_id: int = 0
     env_overrides: Dict[str, str] = {}
     port_overrides: Dict[str, int] = {}
-    volume_overrides: Dict[str, str] = {}  # {original_path: new_path}
+    volume_overrides: Dict[str, str] = {}
 
 
 class DeployResponse(BaseModel):
     """Deployment response"""
     success: bool
     stack_id: Optional[int] = None
+    project_id: Optional[str] = None
     message: str
     portainer_response: Optional[Dict[str, Any]] = None
+    arcane_response: Optional[Dict[str, Any]] = None
 
 
 class Repository(BaseModel):
@@ -108,3 +111,10 @@ class PortainerConfigRequest(BaseModel):
     base_url: str
     api_key: str
     endpoint_id: int = 1
+
+
+class ArcaneConfigRequest(BaseModel):
+    """Request model for Arcane configuration"""
+    base_url: str
+    api_key: str
+    environment_id: int = 0

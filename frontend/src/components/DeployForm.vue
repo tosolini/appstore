@@ -108,7 +108,9 @@ export default {
     return {
       formData: {
         stack_name: '',
+        backend: 'portainer',
         portainer_endpoint_id: 3,
+        arcane_environment_id: 0,
         env_overrides: {},
         volume_overrides: {}
       },
@@ -166,8 +168,11 @@ export default {
       this.deployResult = null
 
       try {
-        const modeResponse = await axios.get('/api/settings/portainer-mode')
-        const isMock = modeResponse.data.current_mode === 'mock'
+        // Detect active backend
+        const backendResponse = await axios.get('/api/settings/backend')
+        this.formData.backend = backendResponse.data.active_backend
+
+        const isMock = backendResponse.data.available_backends[this.formData.backend]?.mode === 'mock'
         const deployEndpoint = isMock
           ? `/apps/${this.appId}/deploy-mock`
           : `/apps/${this.appId}/deploy`
@@ -184,7 +189,6 @@ export default {
 
         this.$emit('deploy-success', response.data)
 
-        // Reset form after 2 seconds
         setTimeout(() => {
           this.resetForm()
         }, 2000)

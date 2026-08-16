@@ -5,6 +5,7 @@
         <h1>Container AppStore</h1>
         <nav class="header-nav">
           <router-link to="/">Browse</router-link>
+          <router-link to="/imports/github">Imports</router-link>
           <router-link to="/settings">Settings</router-link>
           <button class="theme-toggle" @click="toggleTheme" :title="isDark ? 'Light Mode' : 'Dark Mode'">
             {{ themeIcon }}
@@ -21,7 +22,7 @@
       <p>
         Container AppStore Bridge by 
         <a href="https://www.tosolini.info" target="_blank" rel="noopener noreferrer">Tosolini.info</a>
-        v1.0.0 | 
+        v1.0.7 | 
         <a href="/docs" target="_blank" rel="noopener noreferrer">Backend API</a>
       </p>
     </footer>

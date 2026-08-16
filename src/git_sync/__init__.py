@@ -27,6 +27,7 @@ class GitSync:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.last_sync = None
         self.apps: Dict[str, App] = {}
+        self.imported_apps: Dict[str, App] = {}
     
     def clone_or_update(self, repo_config: RepositoryModel) -> bool:
         """
@@ -130,9 +131,17 @@ class GitSync:
                 logger.info(f"Loaded {len(apps_found)} apps from {repo_config.name}")
         
         self.last_sync = datetime.utcnow().isoformat()
+        self.apps.update(self.imported_apps)
         logger.info(f"Sync complete: {result}")
         
         return result
+
+    def set_imported_apps(self, apps: Dict[str, App]) -> None:
+        """Replace the imported-app catalog and merge into the active app list."""
+        for app_id in self.imported_apps.keys():
+            self.apps.pop(app_id, None)
+        self.imported_apps = apps.copy()
+        self.apps.update(self.imported_apps)
     
     def get_all_apps(self) -> Dict[str, App]:
         """Returns all loaded apps"""

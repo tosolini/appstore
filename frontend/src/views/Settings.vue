@@ -329,6 +329,45 @@
         </div>
       </div>
 
+      <div class="settings-section">
+        <h2>GitHub Repo Import</h2>
+        <p class="text-muted">Paste GitHub repository URLs to auto-generate app pages from docker-compose files or Dockerfiles.</p>
+
+        <form @submit.prevent="importGitHubRepositories" class="add-repo-form">
+          <div class="form-group">
+            <label>GitHub repository URLs</label>
+            <textarea
+              v-model="githubImportInput"
+              rows="6"
+              placeholder="https://github.com/example/project&#10;https://github.com/example/another-project"
+              required
+            ></textarea>
+            <small class="hint">One URL per line. Existing imports for the same repository are updated in place.</small>
+          </div>
+          <button type="submit" class="btn-add" :disabled="importingGithub">
+            {{ importingGithub ? 'Importing...' : 'Import GitHub Repositories' }}
+          </button>
+        </form>
+
+        <div v-if="githubImportStatus" :class="['status', githubImportStatus.success ? 'success' : 'error']" style="margin-top: 1rem;">
+          {{ githubImportStatus.message }}
+        </div>
+
+        <div v-if="githubImportResults.length" class="github-import-results">
+          <div v-for="result in githubImportResults" :key="`${result.repository}-${result.app_id || result.status}`" class="github-import-item">
+            <div>
+              <strong>{{ result.title || result.repository }}</strong>
+              <div class="repo-url">{{ result.repository }}</div>
+            </div>
+            <span :class="['status-pill', result.status]">{{ result.status }}</span>
+          </div>
+        </div>
+
+        <div class="status info" style="margin-top: 1rem;">
+          Imported apps are managed on the dedicated <router-link to="/imports/github">GitHub Imports</router-link> page.
+        </div>
+      </div>
+
       <!-- Cache Management -->
       <div class="settings-section">
         <h2>Cache Management</h2>
@@ -402,6 +441,10 @@ export default {
       arcaneConfigReadOnly: false,
       // Repos
       repositories: [],
+      githubImportInput: '',
+      githubImportResults: [],
+      githubImportStatus: null,
+      importingGithub: false,
       // Mocks
       portainerMockStacks: [],
       arcaneMockProjects: [],
@@ -627,6 +670,43 @@ export default {
         }
         console.error('Error adding repository:', error)
         alert(`Error adding repository: ${errorMessage}`)
+      }
+    },
+
+    async importGitHubRepositories() {
+      const repositories = this.githubImportInput
+        .split('\n')
+        .map(url => url.trim())
+        .filter(Boolean)
+
+      if (!repositories.length) {
+        this.githubImportStatus = {
+          success: false,
+          message: 'Please add at least one GitHub repository URL.'
+        }
+        return
+      }
+
+      this.importingGithub = true
+      this.githubImportStatus = null
+
+      try {
+        const response = await axios.post('/api/imports/github', { repositories })
+        this.githubImportResults = response.data.results || []
+        this.githubImportStatus = {
+          success: response.data.imported > 0,
+          message: `Imported ${response.data.imported} repositories, skipped ${response.data.skipped}.`
+        }
+        this.githubImportInput = ''
+        await this.loadSettings()
+      } catch (error) {
+        console.error('Error importing GitHub repositories:', error)
+        this.githubImportStatus = {
+          success: false,
+          message: error.response?.data?.detail || 'Failed to import GitHub repositories'
+        }
+      } finally {
+        this.importingGithub = false
       }
     },
 
@@ -976,7 +1056,8 @@ export default {
   color: var(--color-text-primary);
 }
 
-.form-group input {
+.form-group input,
+.form-group textarea {
   padding: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -986,13 +1067,15 @@ export default {
   transition: all 0.3s ease;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.form-group input:disabled {
+.form-group input:disabled,
+.form-group textarea:disabled {
   background: var(--color-bg-tertiary);
   color: var(--color-text-muted);
   opacity: 0.6;
@@ -1145,6 +1228,41 @@ export default {
   border: 1px dashed var(--color-border);
 }
 
+.github-import-results {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.github-import-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+}
+
+.status-pill {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  background: var(--color-bg-tertiary);
+}
+
+.status-pill.imported {
+  background: rgba(72, 187, 120, 0.15);
+  color: var(--color-success);
+}
+
+.status-pill.skipped {
+  background: rgba(245, 101, 101, 0.15);
+  color: var(--color-error);
+}
+
 .stacks-list {
   display: grid;
   gap: 1rem;
@@ -1236,6 +1354,12 @@ export default {
   font-size: 0.9rem;
   color: var(--color-text-muted);
 }
+
+.warning-text {
+  color: #b45309;
+  font-weight: 600;
+}
+
 
 .repo-actions {
   display: grid;

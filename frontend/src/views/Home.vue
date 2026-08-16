@@ -48,6 +48,9 @@
         <img :src="app.icon" :alt="app.title" class="app-icon">
         <h3>{{ app.title }}</h3>
         <p class="app-dev">{{ app.developer }}</p>
+        <p v-if="app.compatibility_status === 'warning'" class="arch-warning">
+          No {{ app.host_architecture }} image
+        </p>
         <p class="app-desc">{{ truncate(app.description, 100) }}</p>
         <div class="app-footer">
           <span class="category">{{ app.category }}</span>
@@ -388,6 +391,17 @@ export default {
   margin-bottom: 1rem;
   flex: 1;
   line-height: 1.4;
+}
+
+.arch-warning {
+  margin-bottom: 0.75rem;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .app-footer {

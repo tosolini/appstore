@@ -4,6 +4,7 @@ import App from './App.vue'
 import Home from './views/Home.vue'
 import AppDetail from './views/AppDetail.vue'
 import Settings from './views/Settings.vue'
+import GitHubImports from './views/GitHubImports.vue'
 import './styles/theme.css'
 
 const routes = [
@@ -21,6 +22,11 @@ const routes = [
         path: '/settings',
         name: 'Settings',
         component: Settings
+    },
+    {
+        path: '/imports/github',
+        name: 'GitHubImports',
+        component: GitHubImports
     }
 ]
 

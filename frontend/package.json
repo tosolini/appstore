@@ -1,6 +1,6 @@
 {
     "name": "container-appstore-ui",
-    "version": "1.0.0",
+    "version": "1.0.7",
     "description": "Container AppStore Bridge UI",
     "type": "module",
     "scripts": {

@@ -131,3 +131,21 @@ class FavoriteApp(Base):
 
     def __repr__(self):
         return f"<FavoriteApp(app_id={self.app_id})>"
+
+
+class GitHubImportedApp(Base):
+    """Persisted GitHub-imported app snapshot"""
+    __tablename__ = "github_imported_apps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_url = Column(String(500), unique=True, index=True, nullable=False)
+    repo_full_name = Column(String(255), unique=True, index=True, nullable=False)
+    app_id = Column(String(150), unique=True, index=True, nullable=False)
+    enabled = Column(Boolean, default=True)
+    payload_json = Column(Text, nullable=False)
+    last_imported_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<GitHubImportedApp(repo_full_name={self.repo_full_name}, app_id={self.app_id})>"

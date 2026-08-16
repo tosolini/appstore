@@ -24,6 +24,13 @@
         </div>
       </div>
 
+      <div v-if="app.compatibility_warning" class="compatibility-banner warning">
+        {{ app.compatibility_warning }}
+      </div>
+      <div v-else-if="app.compatibility_status === 'buildable'" class="compatibility-banner info">
+        This app is generated from a Dockerfile and should build on the current host architecture ({{ app.host_architecture }}).
+      </div>
+
       <div class="screenshots" v-if="app.screenshot_links && app.screenshot_links.length">
         <h2>Screenshots</h2>
         <div class="screenshots-grid">
@@ -84,9 +91,28 @@
         <h2>Information</h2>
         <p><strong>App ID:</strong> {{ app.app_id }}</p>
         <p><strong>Repository:</strong> {{ app.repository_source }}</p>
+        <p v-if="app.source_url">
+          <strong>Source:</strong>
+          <a :href="app.source_url" target="_blank" rel="noopener noreferrer">{{ app.source_url }}</a>
+        </p>
+        <p v-if="app.homepage">
+          <strong>Homepage:</strong>
+          <a :href="app.homepage" target="_blank" rel="noopener noreferrer">{{ app.homepage }}</a>
+        </p>
         <p><strong>Main Service:</strong> {{ app.main_service }}</p>
         <p><strong>Port Map:</strong> {{ app.port_map }}</p>
         <p><strong>Architectures:</strong> {{ app.architectures.join(', ') }}</p>
+        <p v-if="app.host_architecture"><strong>Current Host Architecture:</strong> {{ app.host_architecture }}</p>
+        <p v-if="app.source_type"><strong>Source Type:</strong> {{ app.source_type }}</p>
+        <p v-if="app.import_debug">
+          <strong>Import Debug:</strong>
+          <span :class="['import-debug-badge', importDebugClass(app.import_debug)]">
+            {{ formatImportDebug(app.import_debug) }}
+          </span>
+        </p>
+        <p v-if="app.unsupported_services && app.unsupported_services.length">
+          <strong>Unsupported Services:</strong> {{ app.unsupported_services.join(', ') }}
+        </p>
       </div>
 
       <router-link to="/" class="btn-back">← Back to Browse</router-link>
@@ -138,6 +164,26 @@ export default {
     }
   },
   methods: {
+    formatImportDebug(importDebug) {
+      if (!importDebug) return ''
+
+      const composeSource = importDebug.compose_path ? ` (${importDebug.compose_path})` : ''
+      if (importDebug.import_strategy === 'dockerfile-fallback') {
+        return `Dockerfile fallback${importDebug.dockerfile_path ? ` (${importDebug.dockerfile_path})` : ''}`
+      }
+      if (importDebug.import_strategy === 'git-fallback') {
+        return `git fallback${composeSource}`
+      }
+      return `GitHub API${composeSource}`
+    },
+
+    importDebugClass(importDebug) {
+      if (!importDebug) return ''
+      if (importDebug.import_strategy === 'dockerfile-fallback') return 'dockerfile-fallback'
+      if (importDebug.import_strategy === 'git-fallback') return 'git-fallback'
+      return 'github-api'
+    },
+
     async loadBackendStatus() {
       try {
         const response = await axios.get('/api/settings/backend')
@@ -381,6 +427,55 @@ export default {
   color: var(--color-text-primary);
 }
 
+.compatibility-banner {
+  margin-bottom: 2rem;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid;
+  font-weight: 500;
+}
+
+.compatibility-banner.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #b45309;
+}
+
+.compatibility-banner.info {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #1d4ed8;
+}
+
+.import-debug-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.import-debug-badge.github-api {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #15803d;
+}
+
+.import-debug-badge.git-fallback {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #b45309;
+}
+
+.import-debug-badge.dockerfile-fallback {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.28);
+  color: #1d4ed8;
+}
+
 .screenshots {
   margin-bottom: 2rem;
 }
@@ -484,9 +579,9 @@ export default {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid white;
-  color: white;
+  background: #111827;
+  border: 2px solid #111827;
+  color: #ffffff;
   width: 50px;
   height: 50px;
   border-radius: 50%;
@@ -494,10 +589,12 @@ export default {
   cursor: pointer;
   z-index: 10001;
   transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: #374151;
+  border-color: #374151;
   transform: scale(1.1);
 }
 
@@ -506,9 +603,9 @@ export default {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid white;
-  color: white;
+  background: #111827;
+  border: 2px solid #111827;
+  color: #ffffff;
   width: 50px;
   height: 50px;
   border-radius: 4px;
@@ -516,11 +613,13 @@ export default {
   cursor: pointer;
   z-index: 10000;
   transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .lightbox-prev:hover,
 .lightbox-next:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: #374151;
+  border-color: #374151;
   transform: translateY(-50%) scale(1.1);
 }
 

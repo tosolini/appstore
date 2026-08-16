@@ -19,6 +19,7 @@ class ServiceMetadata(BaseModel):
     ports: List[Dict[str, Any]] = []
     volumes: List[Dict[str, Any]] = []
     environment: Dict[str, str] = {}
+    architectures: List[str] = []
 
 
 class App(BaseModel):
@@ -35,10 +36,19 @@ class App(BaseModel):
     screenshot_links: List[str] = []
     thumbnail: Optional[str] = None
     repository_source: str  # es. "CasaOS AppStore", "Custom Registry"
+    source_url: Optional[str] = None
+    homepage: Optional[str] = None
+    source_type: Optional[str] = None
+    import_debug: Dict[str, Any] = {}
     compose_content: str  # docker-compose.yml raw content
     services: Dict[str, ServiceMetadata] = {}
     architectures: List[str] = ["amd64"]
     tags: List[str] = []
+    host_architecture: Optional[str] = None
+    compatible_with_host: Optional[bool] = None
+    compatibility_status: Optional[str] = None
+    compatibility_warning: Optional[str] = None
+    unsupported_services: List[str] = []
     
     class Config:
         json_schema_extra = {
@@ -95,6 +105,20 @@ class RepositoryCreate(BaseModel):
     url: str
     branch: str = "main"
     priority: int = 0
+
+
+class GitHubImportRequest(BaseModel):
+    """Batch import request for GitHub repositories"""
+    repositories: List[str]
+
+
+class GitHubImportResult(BaseModel):
+    """Per-repository import result"""
+    repository: str
+    status: str
+    app_id: Optional[str] = None
+    title: Optional[str] = None
+    message: str
 
 
 class SyncStatus(BaseModel):

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -18,9 +19,23 @@ from src.portainer.mock import MockPortainerClient
 from src.arcane import ArcaneClient
 from src.arcane.mock import MockArcaneClient
 from src.db import init_db, get_db
-from src.db.models import Repository as RepositoryModel, PortainerConfig, ArcaneConfig, FavoriteApp
+from src.db.models import (
+    Repository as RepositoryModel,
+    PortainerConfig,
+    ArcaneConfig,
+    FavoriteApp,
+    GitHubImportedApp,
+)
+from src.github_import import (
+    GitHubAppImporter,
+    GitHubImportError,
+    deserialize_imported_app,
+    load_persisted_imported_apps,
+    serialize_imported_app,
+)
 from src.parsers.compose_schema import ComposeSchema
 from src.security import get_encryption_manager
+from src.models import GitHubImportRequest
 
 
 # Load environment
@@ -34,7 +49,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.0.0"
+    version="1.0.7"
 )
 
 # CORS
@@ -157,12 +172,140 @@ def init_sync():
         logger.info(f"Sync task executed: {result}")
 
 
+def load_imported_apps_into_memory():
+    """Load persisted GitHub-imported apps into the in-memory catalog."""
+    global git_sync
+    if not git_sync:
+        return
+
+    from src.db import get_db_sync
+
+    db = get_db_sync()
+    try:
+        records = load_persisted_imported_apps(db)
+        imported_apps = {}
+        for record in records:
+            app = deserialize_imported_app(record.payload_json)
+            imported_apps[app.app_id] = app
+        git_sync.set_imported_apps(imported_apps)
+        logger.info(f"Loaded {len(imported_apps)} GitHub-imported apps into memory")
+    finally:
+        db.close()
+
+
+def _app_runtime_metadata(app: App) -> dict:
+    host_architecture = app.host_architecture or GitHubAppImporter.host_architecture()
+    architectures = list(dict.fromkeys(app.architectures or []))
+    compatible_with_host = app.compatible_with_host
+    compatibility_status = app.compatibility_status
+    compatibility_warning = app.compatibility_warning
+
+    if compatible_with_host is None and architectures:
+        compatible_with_host = host_architecture in architectures
+        compatibility_status = "compatible" if compatible_with_host else "warning"
+        if not compatible_with_host and not compatibility_warning:
+            compatibility_warning = f"This app does not list support for {host_architecture}."
+    elif compatibility_status is None:
+        compatibility_status = "unknown"
+
+    return {
+        "host_architecture": host_architecture,
+        "architectures": architectures,
+        "compatible_with_host": compatible_with_host,
+        "compatibility_status": compatibility_status,
+        "compatibility_warning": compatibility_warning,
+        "unsupported_services": app.unsupported_services,
+    }
+
+
+def _app_summary(app: App) -> dict:
+    runtime = _app_runtime_metadata(app)
+    return {
+        "app_id": app.app_id,
+        "title": app.title,
+        "description": app.description,
+        "icon": app.icon,
+        "developer": app.developer,
+        "category": app.category,
+        "repository_source": app.repository_source,
+        "tags": app.tags,
+        "source_url": app.source_url,
+        "homepage": app.homepage,
+        "source_type": app.source_type,
+        "import_debug": app.import_debug,
+        **runtime,
+    }
+
+
+def _app_detail_payload(app: App) -> dict:
+    runtime = _app_runtime_metadata(app)
+    return {
+        "app_id": app.app_id,
+        "title": app.title,
+        "description": app.description,
+        "icon": app.icon,
+        "developer": app.developer,
+        "category": app.category,
+        "port_map": app.port_map,
+        "index": app.index,
+        "main_service": app.main_service,
+        "screenshot_links": app.screenshot_links,
+        "thumbnail": app.thumbnail,
+        "repository_source": app.repository_source,
+        "tags": app.tags,
+        "compose_content": app.compose_content,
+        "source_url": app.source_url,
+        "homepage": app.homepage,
+        "source_type": app.source_type,
+        "import_debug": app.import_debug,
+        **runtime,
+        "services": {
+            name: {
+                "container_name": svc.container_name,
+                "image": svc.image,
+                "ports": svc.ports,
+                "volumes": svc.volumes,
+                "environment": svc.environment,
+                "architectures": svc.architectures,
+            }
+            for name, svc in app.services.items()
+        }
+    }
+
+
+def _persist_imported_app_record(
+    db: Session,
+    record: Optional[GitHubImportedApp],
+    repository_url: str,
+    app: App,
+    source: dict,
+) -> GitHubImportedApp:
+    payload_json = serialize_imported_app(app)
+
+    if not record:
+        record = GitHubImportedApp(
+            source_url=repository_url,
+            repo_full_name=source["repo_full_name"],
+            app_id=app.app_id,
+            payload_json=payload_json,
+        )
+        db.add(record)
+    else:
+        record.repo_full_name = source["repo_full_name"]
+        record.app_id = app.app_id
+        record.payload_json = payload_json
+        record.enabled = True
+        record.last_imported_at = datetime.utcnow()
+
+    return record
+
+
 @app.on_event("startup")
 async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.0.0...")
+    logger.info("Starting AppStore Bridge API v1.0.7...")
     
     # Initialize database
     init_db()
@@ -193,6 +336,7 @@ async def startup_event():
     
     # Initial sync
     init_sync()
+    load_imported_apps_into_memory()
     
     logger.info("Startup complete")
 
@@ -336,7 +480,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.0.0",
+        "version": "1.0.7",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,
@@ -402,18 +546,7 @@ async def list_apps(
         "total": total,
         "offset": offset,
         "limit": limit,
-        "apps": [
-            {
-                "app_id": a.app_id,
-                "title": a.title,
-                "description": a.description,
-                "icon": a.icon,
-                "category": a.category,
-                "repository_source": a.repository_source,
-                "tags": a.tags
-            }
-            for a in results
-        ]
+        "apps": [_app_summary(a) for a in results]
     }
 
 
@@ -473,17 +606,7 @@ async def search_apps(q: str = Query(..., min_length=1, max_length=200)) -> dict
     return {
         "query": q,
         "results_count": len(results),
-        "apps": [
-            {
-                "app_id": a.app_id,
-                "title": a.title,
-                "description": a.description,
-                "icon": a.icon,
-                "category": a.category,
-                "repository_source": a.repository_source
-            }
-            for a in results[:50]  # Limit 50 search results
-        ]
+        "apps": [_app_summary(a) for a in results[:50]]
     }
 
 
@@ -501,33 +624,7 @@ async def get_app_detail(app_id: str) -> dict:
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
-    return {
-        "app_id": app.app_id,
-        "title": app.title,
-        "description": app.description,
-        "icon": app.icon,
-        "developer": app.developer,
-        "category": app.category,
-        "port_map": app.port_map,
-        "index": app.index,
-        "main_service": app.main_service,
-        "screenshot_links": app.screenshot_links,
-        "thumbnail": app.thumbnail,
-        "repository_source": app.repository_source,
-        "architectures": app.architectures,
-        "tags": app.tags,
-        "compose_content": app.compose_content,
-        "services": {
-            name: {
-                "container_name": svc.container_name,
-                "image": svc.image,
-                "ports": svc.ports,
-                "volumes": svc.volumes,
-                "environment": svc.environment
-            }
-            for name, svc in app.services.items()
-        }
-    }
+    return _app_detail_payload(app)
 
 
 @app.get("/apps/{app_id}/schema")
@@ -761,6 +858,187 @@ async def sync_repository(repo_id: int, db: Session = Depends(get_db)) -> dict:
         return {"status": "success", "message": f"Repository '{repo.name}' synced"}
     else:
         return {"status": "error", "message": f"Failed to sync repository '{repo.name}'"}
+
+
+@app.get("/api/imports/github")
+async def list_github_imports(db: Session = Depends(get_db)) -> dict:
+    """List persisted GitHub-imported apps."""
+    records = load_persisted_imported_apps(db)
+    imports = []
+    for record in records:
+        app = deserialize_imported_app(record.payload_json)
+        imports.append(
+            {
+                "id": record.id,
+                "source_url": record.source_url,
+                "repo_full_name": record.repo_full_name,
+                "app_id": record.app_id,
+                "title": app.title,
+                "description": app.description,
+                "icon": app.icon,
+                "homepage": app.homepage,
+                "source_type": app.source_type,
+                "import_debug": app.import_debug,
+                "architectures": app.architectures,
+                "host_architecture": app.host_architecture,
+                "compatible_with_host": app.compatible_with_host,
+                "compatibility_status": app.compatibility_status,
+                "compatibility_warning": app.compatibility_warning,
+                "last_imported_at": record.last_imported_at.isoformat() if record.last_imported_at else None,
+            }
+        )
+
+    return {
+        "total": len(imports),
+        "imports": imports,
+    }
+
+
+@app.post("/api/imports/github")
+async def import_github_repositories(
+    request: GitHubImportRequest,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Import GitHub repositories with docker-compose or Dockerfile into the app catalog."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    repositories = [repo.strip() for repo in request.repositories if repo.strip()]
+    if not repositories:
+        raise HTTPException(status_code=400, detail="At least one repository URL is required")
+
+    importer = GitHubAppImporter()
+    imported_apps = git_sync.imported_apps.copy()
+    results = []
+
+    for repository_url in repositories:
+        try:
+            app, source = importer.import_repository(repository_url)
+
+            record = (
+                db.query(GitHubImportedApp)
+                .filter(GitHubImportedApp.source_url == repository_url)
+                .first()
+            )
+            old_app_id = record.app_id if record else None
+            _persist_imported_app_record(db, record, repository_url, app, source)
+
+            if old_app_id and old_app_id != app.app_id:
+                imported_apps.pop(old_app_id, None)
+            imported_apps[app.app_id] = app
+            results.append(
+                {
+                    "repository": repository_url,
+                    "status": "imported",
+                    "app_id": app.app_id,
+                    "title": app.title,
+                    "message": "Imported successfully",
+                }
+            )
+        except GitHubImportError as exc:
+            results.append(
+                {
+                    "repository": repository_url,
+                    "status": "skipped",
+                    "message": str(exc),
+                }
+            )
+
+    db.commit()
+    git_sync.set_imported_apps(imported_apps)
+
+    return {
+        "total": len(results),
+        "imported": len([result for result in results if result["status"] == "imported"]),
+        "skipped": len([result for result in results if result["status"] != "imported"]),
+        "results": results,
+    }
+
+
+@app.get("/api/imports/github/export")
+async def export_github_imports(
+    format: str = Query("json", pattern="^(json|urls)$"),
+    db: Session = Depends(get_db)
+):
+    """Export imported GitHub repositories as a distributable list."""
+    records = load_persisted_imported_apps(db)
+    repositories = [record.source_url for record in records]
+
+    if format == "urls":
+        return PlainTextResponse(
+            "\n".join(repositories),
+            headers={"Content-Disposition": 'attachment; filename="github-imports.txt"'},
+        )
+
+    apps = [deserialize_imported_app(record.payload_json).model_dump() for record in records]
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "host_architecture": GitHubAppImporter.host_architecture(),
+        "repositories": repositories,
+        "apps": apps,
+    }
+    return JSONResponse(
+        payload,
+        headers={"Content-Disposition": 'attachment; filename="github-imports.json"'},
+    )
+
+
+@app.post("/api/imports/github/{import_id}/resync")
+async def resync_github_import(import_id: int, db: Session = Depends(get_db)) -> dict:
+    """Re-import a persisted GitHub repository."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    importer = GitHubAppImporter()
+    try:
+        app, source = importer.import_repository(record.source_url)
+    except GitHubImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    old_app_id = record.app_id
+    _persist_imported_app_record(db, record, record.source_url, app, source)
+    db.commit()
+
+    imported_apps = git_sync.imported_apps.copy()
+    if old_app_id and old_app_id != app.app_id:
+        imported_apps.pop(old_app_id, None)
+    imported_apps[app.app_id] = app
+    git_sync.set_imported_apps(imported_apps)
+
+    return {
+        "status": "success",
+        "message": f"Re-imported {record.repo_full_name}",
+        "app_id": app.app_id,
+        "title": app.title,
+    }
+
+
+@app.delete("/api/imports/github/{import_id}")
+async def delete_github_import(import_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a persisted GitHub import."""
+    global git_sync
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    db.delete(record)
+    db.commit()
+
+    if git_sync:
+        imported_apps = git_sync.imported_apps.copy()
+        imported_apps.pop(record.app_id, None)
+        git_sync.set_imported_apps(imported_apps)
+
+    return {"status": "success", "message": f"Deleted import for {record.repo_full_name}"}
 
 
 @app.post("/apps/{app_id}/deploy")

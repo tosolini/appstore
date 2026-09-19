@@ -5,6 +5,7 @@ on:
     types: [published]
   push:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   push_to_registry:

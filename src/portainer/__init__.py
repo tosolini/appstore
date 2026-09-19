@@ -118,17 +118,17 @@ class PortainerClient:
                     portainer_response={'error': error_msg}
                 )
         
-        except requests.RequestException as e:
-            logger.error(f"Request error deploying stack: {e}")
+        except requests.RequestException:
+            logger.exception("Request error deploying stack")
             return DeployResponse(
                 success=False,
-                message=f"Request failed: {str(e)}"
+                message="Request to Portainer failed. Check server logs for details."
             )
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+        except Exception:
+            logger.exception("Unexpected Portainer error")
             return DeployResponse(
                 success=False,
-                message=f"Unexpected error: {str(e)}"
+                message="Unexpected Portainer error. Check server logs for details."
             )
     
     def validate_connection(self) -> bool:

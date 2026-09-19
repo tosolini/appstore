@@ -306,8 +306,11 @@ class GitHubAppImporter:
             )
         except subprocess.CalledProcessError as exc:
             shutil.rmtree(checkout_dir, ignore_errors=True)
-            stderr = exc.stderr.strip() or exc.stdout.strip()
-            raise GitHubImportError(f"Could not clone repository snapshot: {stderr}")
+            stderr = (exc.stderr or "").strip() or (exc.stdout or "").strip()
+            # Log full git output server-side only; return a generic
+            # user-facing message to avoid exposing internal paths/details.
+            logger.warning("GitHub import clone failed for %s: %s", repository_url, stderr)
+            raise GitHubImportError("Could not clone repository snapshot")
 
         from pathlib import Path
 

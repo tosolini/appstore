@@ -45,15 +45,17 @@ print("\n[2] Reading Portainer config via API...")
 try:
     response = requests.get(f"{BASE_URL}/api/settings/portainer")
     config = response.json()
-    print(f"✅ Config retrieved:")
+    api_key_value = config.get('api_key', '')
+    is_masked = api_key_value == "***"
+    print("✅ Config retrieved:")
     print(f"   - Base URL: {config['base_url']}")
-    print(f"   - API Key: {config['api_key']} (masked)")
+    print(f"   - API Key: {'*** (masked)' if is_masked else '(present, unexpected value - length %d)' % len(str(api_key_value))}")
     print(f"   - Endpoint ID: {config['endpoint_id']}")
-    
-    if config['api_key'] != "***":
-        print(f"❌ WARNING: API key not masked! Got: {config['api_key']}")
+
+    if not is_masked:
+        print("❌ WARNING: API key not masked! Expected '***'.")
     else:
-        print(f"✅ API key properly masked")
+        print("✅ API key properly masked")
 except Exception as e:
     print(f"❌ API error: {e}")
     sys.exit(1)
@@ -68,16 +70,17 @@ try:
     
     if row:
         base_url, encrypted = row
-        print(f"✅ Config in DB:")
+        print("✅ Config in DB:")
         print(f"   - Base URL: {base_url}")
-        print(f"   - API Key (encrypted): {encrypted[:80]}...")
-        
+        print(f"   - API Key (encrypted): present, length {len(encrypted)} chars")
+
         # Verifica che NON sia il valore in chiaro
+        # NOTE: avoid logging the test secret itself; only check presence
         if "test_secret_key_abc123xyz" in encrypted:
-            print(f"❌ ERROR: API key not encrypted!")
+            print("❌ ERROR: API key not encrypted!")
             sys.exit(1)
         else:
-            print(f"✅ API key is properly encrypted (not plaintext)")
+            print("✅ API key is properly encrypted (not plaintext)")
     else:
         print(f"❌ No config found in DB")
         sys.exit(1)
@@ -101,17 +104,17 @@ try:
     
     manager = get_encryption_manager()
     decrypted = manager.decrypt(encrypted_value)
-    
-    print(f"✅ Decryption successful:")
-    print(f"   - Encrypted: {encrypted_value[:80]}...")
-    print(f"   - Decrypted: {decrypted}")
-    
+
+    print("✅ Decryption successful:")
+    print(f"   - Encrypted length: {len(encrypted_value)} chars")
+    print(f"   - Decrypted length: {len(decrypted)} chars")
+
     if decrypted == "test_secret_key_abc123xyz":
-        print(f"✅ Decrypted value matches original!")
+        print("✅ Decrypted value matches original!")
     else:
-        print(f"❌ Decrypted value doesn't match!")
-        print(f"   Expected: 'test_secret_key_abc123xyz'")
-        print(f"   Got: '{decrypted}'")
+        print("❌ Decrypted value doesn't match!")
+        print(f"   Expected length: {len('test_secret_key_abc123xyz')}")
+        print(f"   Got length: {len(decrypted)}")
         sys.exit(1)
 except Exception as e:
     print(f"❌ Decryption error: {e}")
@@ -123,10 +126,7 @@ except Exception as e:
 print("\n[5] Checking encryption key persistence...")
 key_file = Path("/app/data/.encryption_key")
 if key_file.exists():
-    with open(key_file, 'r') as f:
-        key = f.read().strip()
     print(f"✅ Encryption key file exists at {key_file}")
-    print(f"   - Key (first 40 chars): {key[:40]}...")
     print(f"   - File size: {key_file.stat().st_size} bytes")
 else:
     print(f"❌ Encryption key file not found at {key_file}")

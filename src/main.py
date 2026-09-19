@@ -758,10 +758,10 @@ async def create_repository(
             "enabled": repo.enabled,
             "message": "Repository created"
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Error creating repository: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        logger.exception("Error creating repository")
+        raise HTTPException(status_code=500, detail="Failed to create repository")
 
 
 @app.put("/api/repositories/{repo_id}")
@@ -938,11 +938,12 @@ async def import_github_repositories(
                 }
             )
         except GitHubImportError as exc:
+            logger.warning("GitHub import skipped for %s: %s", repository_url, exc)
             results.append(
                 {
                     "repository": repository_url,
                     "status": "skipped",
-                    "message": str(exc),
+                    "message": "Import failed for this repository. Check server logs for details.",
                 }
             )
 
@@ -1001,7 +1002,8 @@ async def resync_github_import(import_id: int, db: Session = Depends(get_db)) ->
     try:
         app, source = importer.import_repository(record.source_url)
     except GitHubImportError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.warning("GitHub resync failed for %s: %s", record.source_url, exc)
+        raise HTTPException(status_code=400, detail="Re-import failed for this repository. Check server logs for details.")
 
     old_app_id = record.app_id
     _persist_imported_app_record(db, record, record.source_url, app, source)
@@ -1224,10 +1226,10 @@ async def toggle_portainer_mode(db: Session = Depends(get_db)) -> dict:
             "current_mode": "mock" if is_mock else "real",
             "note": "Restart required for full effect"
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Error toggling portainer mode: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.exception("Error toggling portainer mode")
+        raise HTTPException(status_code=500, detail="Failed to toggle Portainer mode")
 
 
 # --- Favorites ---
@@ -1448,10 +1450,10 @@ async def toggle_arcane_mode(db: Session = Depends(get_db)) -> dict:
             "current_mode": "mock" if is_mock else "real",
             "note": "Restart required for full effect"
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"Error toggling arcane mode: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.exception("Error toggling arcane mode")
+        raise HTTPException(status_code=500, detail="Failed to toggle Arcane mode")
 
 
 # --- Arcane Mock Endpoints ---
@@ -1520,13 +1522,13 @@ async def clear_cache_endpoint() -> dict:
         else:
             return {
                 "success": False,
-                "message": clear_result['message'],
+                "message": "Failed to clear cache. Check server logs for details.",
                 "cache_cleared": clear_result,
                 "timestamp": datetime.utcnow().isoformat()
             }
-    except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
-        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
+    except Exception:
+        logger.exception("Error clearing cache")
+        raise HTTPException(status_code=500, detail="Internal error while clearing cache")
 
 
 @app.get("/api/settings/cache/status")
@@ -1557,9 +1559,9 @@ async def get_cache_status() -> dict:
             "last_sync": last_sync,
             "cache_path_exists": cache_dir.exists()
         }
-    except Exception as e:
-        logger.error(f"Error getting cache status: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    except Exception:
+        logger.exception("Error getting cache status")
+        raise HTTPException(status_code=500, detail="Failed to get cache status")
 
 
 @app.get("/api/mock/stacks")

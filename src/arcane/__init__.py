@@ -101,17 +101,17 @@ class ArcaneClient:
             deploy_response = self._deploy_up(project_id)
             return deploy_response
 
-        except requests.RequestException as e:
-            logger.error(f"Request error deploying project: {e}")
+        except requests.RequestException:
+            logger.exception("Request error deploying Arcane project")
             return DeployResponse(
                 success=False,
-                message=f"Request failed: {str(e)}"
+                message="Request to Arcane failed. Check server logs for details."
             )
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+        except Exception:
+            logger.exception("Unexpected Arcane error")
             return DeployResponse(
                 success=False,
-                message=f"Unexpected error: {str(e)}"
+                message="Unexpected Arcane error. Check server logs for details."
             )
 
     def _deploy_up(self, project_id: str) -> DeployResponse:
@@ -159,11 +159,11 @@ class ArcaneClient:
                 arcane_response={'error': error_msg}
             )
 
-        except requests.RequestException as e:
-            logger.error(f"Request error during deploy/up: {e}")
+        except requests.RequestException:
+            logger.exception("Request error during Arcane deploy/up")
             return DeployResponse(
                 success=False,
-                message=f"Deploy request failed: {str(e)}"
+                message="Deploy request to Arcane failed. Check server logs for details."
             )
 
     def validate_connection(self) -> bool:

@@ -189,11 +189,11 @@ class GitSync:
                 'deleted_repos': cache_stats['deleted_repos'],
                 'cache_size_before': cache_stats['cache_size_before']
             }
-        except Exception as e:
-            logger.error(f"Error clearing cache: {e}")
+        except Exception:
+            logger.exception("Error clearing cache")
             return {
                 'success': False,
-                'message': f'Error clearing cache: {str(e)}',
+                'message': 'Failed to clear cache. Check server logs for details.',
                 'deleted_repos': 0,
                 'cache_size_before': self._get_cache_size()
             }

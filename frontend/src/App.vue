@@ -22,7 +22,7 @@
       <p>
         Container AppStore Bridge by 
         <a href="https://www.tosolini.info" target="_blank" rel="noopener noreferrer">Tosolini.info</a>
-        v1.0.7 | 
+        v1.0.8 | 
         <a href="/docs" target="_blank" rel="noopener noreferrer">Backend API</a>
       </p>
     </footer>

@@ -43,6 +43,17 @@ services:
             "enabled": false
           }
         ]
+      # Default GitHub import seed (bundled github-imports.txt).
+      # Reconciled on every startup: new URLs in the list are auto-imported
+      # after commit + redeploy. Set GITHUB_IMPORT_SEED_URL to host the list
+      # in a separate repo instead (then a restart is enough, no rebuild).
+      GITHUB_IMPORT_SEED_FILE: "${GITHUB_IMPORT_SEED_FILE:-/app/github-imports.txt}"
+      GITHUB_IMPORT_SEED_URL: "${GITHUB_IMPORT_SEED_URL:-}"
+      # Optional: periodically re-check the list (seconds, 0 = startup only)
+      GITHUB_IMPORT_SEED_SYNC_INTERVAL: "${GITHUB_IMPORT_SEED_SYNC_INTERVAL:-0}"
+      # Optional: delete DB records whose URL was removed from the list
+      GITHUB_IMPORT_SEED_PRUNE: "${GITHUB_IMPORT_SEED_PRUNE:-false}"
+
       # Active backend selection: "portainer", "arcane", or "auto" (default)
       ACTIVE_BACKEND: "${ACTIVE_BACKEND:-auto}"
 

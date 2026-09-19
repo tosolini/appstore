@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Depends, Request
@@ -49,7 +51,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.0.7"
+    version="1.0.8"
 )
 
 # CORS
@@ -193,6 +195,171 @@ def load_imported_apps_into_memory():
         db.close()
 
 
+def _load_seed_urls_from_text(text: str) -> list:
+    """Parse a seed list (one URL per line, '#' comments and blanks ignored)."""
+    urls = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        urls.append(line)
+    return list(dict.fromkeys(urls))
+
+
+def _read_github_import_seed() -> list:
+    """Read default GitHub import URLs from a remote URL or the bundled seed file."""
+    seed_url = os.getenv("GITHUB_IMPORT_SEED_URL", "").strip()
+    if seed_url:
+        try:
+            import requests
+
+            resp = requests.get(seed_url, timeout=30)
+            resp.raise_for_status()
+            urls = _load_seed_urls_from_text(resp.text)
+            logger.info(f"Loaded {len(urls)} seed URLs from {seed_url}")
+            return urls
+        except Exception:
+            logger.exception(f"Failed to fetch GITHUB_IMPORT_SEED_URL ({seed_url})")
+            return []
+
+    seed_file = os.getenv("GITHUB_IMPORT_SEED_FILE", "").strip()
+    candidates = []
+    if seed_file:
+        candidates.append(Path(seed_file))
+    # Bundled defaults: /app/github-imports.txt in container,
+    # <repo-root>/github-imports.txt in dev (src/main.py -> parent.parent)
+    candidates.append(Path(__file__).parent.parent / "github-imports.txt")
+    candidates.append(Path("/app/github-imports.txt"))
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                urls = _load_seed_urls_from_text(candidate.read_text(encoding="utf-8"))
+                logger.info(f"Loaded {len(urls)} seed URLs from {candidate}")
+                return urls
+        except Exception:
+            logger.exception(f"Failed to read seed file {candidate}")
+            return []
+    logger.info("No GitHub import seed file found, skipping default import")
+    return []
+
+
+def sync_seed_imports(reason: str = "startup"):
+    """Reconcile the DB with the seed list: import URLs missing from the DB.
+
+    Runs in a background thread (each import needs GitHub API + git clone).
+    Existing records are never re-imported or touched; URLs removed from the
+    list are kept unless GITHUB_IMPORT_SEED_PRUNE=true, in which case their
+    records are deleted.
+    """
+    global git_sync
+    if not git_sync:
+        return
+
+    from src.db import get_db_sync
+
+    db = get_db_sync()
+    try:
+        existing = {r.source_url for r in db.query(GitHubImportedApp).all()}
+
+        urls = _read_github_import_seed()
+        if not urls:
+            return
+
+        missing = [u for u in urls if u not in existing]
+        if missing:
+            logger.info(
+                f"GitHub seed sync ({reason}): {len(missing)} new URLs to import..."
+            )
+            importer = GitHubAppImporter()
+            imported = 0
+            skipped = 0
+            for repository_url in missing:
+                try:
+                    app, source = importer.import_repository(repository_url)
+                    _persist_imported_app_record(db, None, repository_url, app, source)
+                    db.commit()
+                    imported += 1
+                    logger.info(f"Seeded [{imported}/{len(missing)}] {repository_url}")
+                except GitHubImportError as exc:
+                    db.rollback()
+                    logger.warning("Seed skipped for %s: %s", repository_url, exc)
+                    skipped += 1
+                except Exception:
+                    db.rollback()
+                    logger.exception("Seed failed for %s", repository_url)
+                    skipped += 1
+                time.sleep(1)  # be nice to GitHub API rate limits
+            logger.info(
+                f"GitHub seed sync ({reason}) complete: "
+                f"imported={imported} skipped={skipped}"
+            )
+        else:
+            logger.info(
+                f"GitHub seed sync ({reason}): already up to date "
+                f"({len(existing)} imports)"
+            )
+
+        prune = os.getenv("GITHUB_IMPORT_SEED_PRUNE", "false").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if prune:
+            seed_set = set(urls)
+            stale = [u for u in existing if u not in seed_set]
+            removed = 0
+            for stale_url in stale:
+                record = (
+                    db.query(GitHubImportedApp)
+                    .filter(GitHubImportedApp.source_url == stale_url)
+                    .first()
+                )
+                if record:
+                    db.delete(record)
+                    removed += 1
+            if removed:
+                db.commit()
+            logger.info(
+                f"GitHub seed prune ({reason}): removed={removed} kept={len(existing) - removed}"
+            )
+
+        load_imported_apps_into_memory()
+    finally:
+        db.close()
+
+
+_seed_sync_in_progress = False
+_seed_sync_lock = threading.Lock()
+
+
+def _run_seed_sync(reason: str):
+    """Run a seed sync unless one is already running (scheduler overlap guard)."""
+    global _seed_sync_in_progress
+    with _seed_sync_lock:
+        if _seed_sync_in_progress:
+            logger.info(f"GitHub seed sync ({reason}) already running, skipping")
+            return
+        _seed_sync_in_progress = True
+    try:
+        sync_seed_imports(reason)
+    finally:
+        with _seed_sync_lock:
+            _seed_sync_in_progress = False
+
+
+def _seed_defaults_background():
+    """Start seed sync without blocking API startup."""
+    thread = threading.Thread(
+        target=_run_seed_sync, args=("startup",), name="github-seed", daemon=True
+    )
+    thread.start()
+
+
+def scheduled_seed_sync():
+    """Periodic seed sync job (enabled via GITHUB_IMPORT_SEED_SYNC_INTERVAL)."""
+    _run_seed_sync("scheduled")
+
+
 def _app_runtime_metadata(app: App) -> dict:
     host_architecture = app.host_architecture or GitHubAppImporter.host_architecture()
     architectures = list(dict.fromkeys(app.architectures or []))
@@ -305,7 +472,7 @@ async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.0.7...")
+    logger.info("Starting AppStore Bridge API v1.0.8...")
     
     # Initialize database
     init_db()
@@ -331,13 +498,19 @@ async def startup_event():
     scheduler = BackgroundScheduler()
     sync_interval = int(os.getenv('GIT_SYNC_INTERVAL', '3600'))
     scheduler.add_job(init_sync, 'interval', seconds=sync_interval)
+    seed_sync_interval = int(os.getenv('GITHUB_IMPORT_SEED_SYNC_INTERVAL', '0'))
+    if seed_sync_interval > 0:
+        scheduler.add_job(scheduled_seed_sync, 'interval', seconds=seed_sync_interval)
+        logger.info(f"GitHub seed sync scheduled every {seed_sync_interval}s")
     scheduler.start()
     logger.info(f"Sync scheduler started (interval: {sync_interval}s)")
-    
+
     # Initial sync
     init_sync()
     load_imported_apps_into_memory()
-    
+    # Reconcile DB with the seed list (commit -> redeploy picks up list changes)
+    _seed_defaults_background()
+
     logger.info("Startup complete")
 
 
@@ -480,7 +653,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.0.7",
+        "version": "1.0.8",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,

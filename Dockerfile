@@ -37,6 +37,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app code
 COPY src/ src/
 
+# Bundled default GitHub import seed (used on fresh DBs only)
+COPY github-imports.txt ./github-imports.txt
+
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /frontend/dist /app/public
 

@@ -63,6 +63,9 @@ htmlcov/
 *.log
 logs/
 
+# Generated GitHub import export (keep only github-imports.txt as seed)
+github-imports.json
+
 # OS
 .DS_Store
 Thumbs.db

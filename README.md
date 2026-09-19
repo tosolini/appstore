@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.0.7** — A Docker app store with dual-backend support, resilient GitHub app importing, and dedicated imports management.
+**v1.0.8** — A Docker app store with dual-backend support, resilient GitHub app importing, and dedicated imports management.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 

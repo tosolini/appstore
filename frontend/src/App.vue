@@ -22,7 +22,7 @@
       <p>
         Container AppStore Bridge by 
         <a href="https://www.tosolini.info" target="_blank" rel="noopener noreferrer">Tosolini.info</a>
-        v1.0.8 | 
+        v{{ appVersion }} | 
         <a href="/docs" target="_blank" rel="noopener noreferrer">Backend API</a>
       </p>
     </footer>
@@ -32,16 +32,17 @@
 <script setup>
 import { useTheme } from './composables/useTheme'
 import { computed } from 'vue'
+import packageJson from '../package.json'
 
 const { currentTheme, toggleTheme } = useTheme()
 
 const isDark = computed(() => currentTheme.value === 'dark')
 const themeIcon = computed(() => isDark.value ? '☀️' : '🌙')
+const appVersion = packageJson.version
 </script>
 
 <style scoped>
 .app-container {
-  display: flex;
   flex-direction: column;
   min-height: 100vh;
   background-color: var(--color-bg-primary);

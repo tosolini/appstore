@@ -1,17 +1,16 @@
 import os
 import logging
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query, Depends, Request
+from fastapi import FastAPI, HTTPException, Query, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 import json
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict
 from sqlalchemy.orm import Session
 
 from src.models import App, DeployRequest, RepositoryCreate, PortainerConfigRequest, ArcaneConfigRequest
@@ -51,7 +50,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.0.9"
+    version="1.1.0"
 )
 
 # CORS
@@ -195,67 +194,40 @@ def load_imported_apps_into_memory():
         db.close()
 
 
-def _load_seed_urls_from_text(text: str) -> list:
-    """Parse a seed list (one URL per line, '#' comments and blanks ignored)."""
-    urls = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        urls.append(line)
-    return list(dict.fromkeys(urls))
+def _default_backup_path() -> Optional[Path]:
+    """Locate the bundled default imports backup file."""
+    for candidate in (
+        Path(__file__).parent.parent / "github-imports-backup.json",
+        Path("/app/github-imports-backup.json"),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
-def _read_seed_urls_from_files() -> list:
-    """Read seed URLs from the configured file or bundled candidates."""
-    seed_file = os.getenv("GITHUB_IMPORT_SEED_FILE", "").strip()
-    candidates = []
-    if seed_file:
-        candidates.append(Path(seed_file))
-    # Bundled defaults: /app/github-imports.txt in container,
-    # <repo-root>/github-imports.txt in dev (src/main.py -> parent.parent)
-    candidates.append(Path(__file__).parent.parent / "github-imports.txt")
-    candidates.append(Path("/app/github-imports.txt"))
-    for candidate in candidates:
-        try:
-            if candidate.is_file():
-                urls = _load_seed_urls_from_text(candidate.read_text(encoding="utf-8"))
-                logger.info(f"Loaded {len(urls)} seed URLs from {candidate}")
-                return urls
-        except Exception:
-            logger.exception(f"Failed to read seed file {candidate}, trying next")
-            continue
-    logger.info("No GitHub import seed file found, skipping default import")
-    return []
-
-
-def _read_github_import_seed() -> list:
-    """Read default GitHub import URLs from a remote URL or the bundled seed file."""
-    seed_url = os.getenv("GITHUB_IMPORT_SEED_URL", "").strip()
-    if seed_url:
-        try:
-            import requests
-
-            resp = requests.get(seed_url, timeout=30)
-            resp.raise_for_status()
-            urls = _load_seed_urls_from_text(resp.text)
-            logger.info(f"Loaded {len(urls)} seed URLs from {seed_url}")
-            return urls
-        except Exception:
-            logger.exception(
-                f"Failed to fetch GITHUB_IMPORT_SEED_URL ({seed_url}), "
-                "falling back to local seed files"
-            )
-    return _read_seed_urls_from_files()
+def _load_default_backup() -> Optional[dict]:
+    """Load and validate the bundled default imports backup."""
+    path = _default_backup_path()
+    if not path:
+        logger.info("No bundled default backup found, skipping default restore")
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read default backup %s", path)
+        return None
+    if data.get("format") != "container-appstore-imports-v1":
+        logger.warning("Default backup %s has an unsupported format", path)
+        return None
+    return data
 
 
 def sync_seed_imports(reason: str = "startup"):
-    """Reconcile the DB with the seed list: import URLs missing from the DB.
+    """Populate a fresh install with the bundled default imports.
 
-    Runs in a background thread (each import needs GitHub API + git clone).
-    Existing records are never re-imported or touched; URLs removed from the
-    list are kept unless GITHUB_IMPORT_SEED_PRUNE=true, in which case their
-    records are deleted.
+    Restores the full ``github-imports-backup.json`` snapshot (compose content,
+    images, metadata included) so no GitHub calls are made. Only acts when there
+    are no GitHub imports yet; existing imports are left untouched.
     """
     global git_sync
     if not git_sync:
@@ -265,89 +237,30 @@ def sync_seed_imports(reason: str = "startup"):
 
     db = get_db_sync()
     try:
-        existing = {}
-        for (url,) in db.query(GitHubImportedApp.source_url).all():
-            try:
-                key = GitHubAppImporter.normalize_repository_url(url)
-            except GitHubImportError:
-                key = url
-            existing[key] = url
-
-        urls = _read_github_import_seed()
-        if not urls:
+        count = db.query(GitHubImportedApp).count()
+        if count > 0:
+            logger.info(
+                f"Default import seed ({reason}): skipped, {count} imports already present"
+            )
             return
 
-        missing = []
-        for url in urls:
-            try:
-                key = GitHubAppImporter.normalize_repository_url(url)
-            except GitHubImportError:
-                key = url
-            if key not in existing:
-                missing.append(url)
-        if missing:
-            logger.info(
-                f"GitHub seed sync ({reason}): {len(missing)} new URLs to import..."
-            )
-            importer = GitHubAppImporter()
-            imported = 0
-            skipped = 0
-            for repository_url in missing:
-                try:
-                    app, source = importer.import_repository(repository_url)
-                    _persist_imported_app_record(db, None, repository_url, app, source)
-                    db.commit()
-                    imported += 1
-                    logger.info(f"Seeded [{imported}/{len(missing)}] {repository_url}")
-                except GitHubImportError as exc:
-                    db.rollback()
-                    logger.warning("Seed skipped for %s: %s", repository_url, exc)
-                    skipped += 1
-                except Exception:
-                    db.rollback()
-                    logger.exception("Seed failed for %s", repository_url)
-                    skipped += 1
-                time.sleep(1)  # be nice to GitHub API rate limits
-            logger.info(
-                f"GitHub seed sync ({reason}) complete: "
-                f"imported={imported} skipped={skipped}"
-            )
-        else:
-            logger.info(
-                f"GitHub seed sync ({reason}): already up to date "
-                f"({len(existing)} imports)"
-            )
+        data = _load_default_backup()
+        if not data:
+            return
+        entries = data.get("imports") or []
+        if not isinstance(entries, list) or not entries:
+            logger.info(f"Default import seed ({reason}): backup is empty, skipping")
+            return
 
-        prune = os.getenv("GITHUB_IMPORT_SEED_PRUNE", "false").strip().lower() in (
-            "1",
-            "true",
-            "yes",
+        restored, updated, skipped, imported_apps = _apply_import_backup_entries(
+            db, entries, replace_existing=False
         )
-        if prune:
-            seed_set = set()
-            for url in urls:
-                try:
-                    seed_set.add(GitHubAppImporter.normalize_repository_url(url))
-                except GitHubImportError:
-                    seed_set.add(url)
-            stale = [url for key, url in existing.items() if key not in seed_set]
-            removed = 0
-            for stale_url in stale:
-                record = (
-                    db.query(GitHubImportedApp)
-                    .filter(GitHubImportedApp.source_url == stale_url)
-                    .first()
-                )
-                if record:
-                    db.delete(record)
-                    removed += 1
-            if removed:
-                db.commit()
-            logger.info(
-                f"GitHub seed prune ({reason}): removed={removed} kept={len(existing) - removed}"
-            )
-
-        load_imported_apps_into_memory()
+        db.commit()
+        git_sync.set_imported_apps(imported_apps)
+        logger.info(
+            f"Default import seed ({reason}) complete: "
+            f"restored={restored} updated={updated} skipped={skipped}"
+        )
     finally:
         db.close()
 
@@ -372,16 +285,11 @@ def _run_seed_sync(reason: str):
 
 
 def _seed_defaults_background():
-    """Start seed sync without blocking API startup."""
+    """Start default import seed without blocking API startup."""
     thread = threading.Thread(
         target=_run_seed_sync, args=("startup",), name="github-seed", daemon=True
     )
     thread.start()
-
-
-def scheduled_seed_sync():
-    """Periodic seed sync job (enabled via GITHUB_IMPORT_SEED_SYNC_INTERVAL)."""
-    _run_seed_sync("scheduled")
 
 
 def _app_runtime_metadata(app: App) -> dict:
@@ -502,7 +410,7 @@ async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.0.9...")
+    logger.info("Starting AppStore Bridge API v1.1.0...")
     
     # Initialize database
     init_db()
@@ -528,10 +436,6 @@ async def startup_event():
     scheduler = BackgroundScheduler()
     sync_interval = int(os.getenv('GIT_SYNC_INTERVAL', '3600'))
     scheduler.add_job(init_sync, 'interval', seconds=sync_interval)
-    seed_sync_interval = int(os.getenv('GITHUB_IMPORT_SEED_SYNC_INTERVAL', '0'))
-    if seed_sync_interval > 0:
-        scheduler.add_job(scheduled_seed_sync, 'interval', seconds=seed_sync_interval)
-        logger.info(f"GitHub seed sync scheduled every {seed_sync_interval}s")
     scheduler.start()
     logger.info(f"Sync scheduler started (interval: {sync_interval}s)")
 
@@ -683,7 +587,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.0.9",
+        "version": "1.1.0",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,
@@ -1201,7 +1105,7 @@ async def import_github_repositories(
 
 @app.get("/api/imports/github/export")
 async def export_github_imports(
-    format: str = Query("json", pattern="^(json|urls)$"),
+    format: str = Query("json", pattern="^(json|urls|full)$"),
     db: Session = Depends(get_db)
 ):
     """Export imported GitHub repositories as a distributable list."""
@@ -1212,6 +1116,30 @@ async def export_github_imports(
         return PlainTextResponse(
             "\n".join(repositories),
             headers={"Content-Disposition": 'attachment; filename="github-imports.txt"'},
+        )
+
+    if format == "full":
+        all_records = db.query(GitHubImportedApp).all()
+        payload = {
+            "format": "container-appstore-imports-v1",
+            "generated_at": datetime.utcnow().isoformat(),
+            "host_architecture": GitHubAppImporter.host_architecture(),
+            "count": len(all_records),
+            "imports": [
+                {
+                    "source_url": record.source_url,
+                    "repo_full_name": record.repo_full_name,
+                    "app_id": record.app_id,
+                    "enabled": record.enabled,
+                    "last_imported_at": record.last_imported_at.isoformat() if record.last_imported_at else None,
+                    "app": deserialize_imported_app(record.payload_json).model_dump(),
+                }
+                for record in all_records
+            ],
+        }
+        return JSONResponse(
+            payload,
+            headers={"Content-Disposition": 'attachment; filename="github-imports-backup.json"'},
         )
 
     apps = [deserialize_imported_app(record.payload_json).model_dump() for record in records]
@@ -1225,6 +1153,194 @@ async def export_github_imports(
         payload,
         headers={"Content-Disposition": 'attachment; filename="github-imports.json"'},
     )
+
+
+@app.post("/api/imports/github/restore")
+async def restore_github_imports(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Restore a full GitHub-import backup without contacting GitHub."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    raw = await file.read()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="Backup file is not valid JSON")
+
+    if data.get("format") != "container-appstore-imports-v1":
+        raise HTTPException(
+            status_code=400,
+            detail='Unsupported backup format. Expected "container-appstore-imports-v1".',
+        )
+
+    entries = data.get("imports") or []
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="Backup imports field must be a list")
+
+    restored, updated, skipped, backup_apps = _apply_import_backup_entries(db, entries, replace_existing=False)
+
+    imported_apps = git_sync.imported_apps.copy()
+    imported_apps.update(backup_apps)
+
+    db.commit()
+    git_sync.set_imported_apps(imported_apps)
+
+    return {
+        "status": "success",
+        "message": f"Restored {restored} apps, updated {updated}, skipped {skipped}.",
+        "restored": restored,
+        "updated": updated,
+        "skipped": skipped,
+        "total": len(entries),
+    }
+
+
+def _apply_import_backup_entries(
+    db: Session,
+    entries: List[dict],
+    replace_existing: bool,
+) -> Tuple[int, int, int, Dict[str, App]]:
+    """Apply full-backup entries to the DB and catalog.
+
+    Args:
+        db: Database session.
+        entries: List of backup entries (``{source_url, repo_full_name, app_id, enabled, app}``).
+        replace_existing: If True, delete all current GitHub imports before applying
+            (used by the full-reset flow).
+
+    Returns:
+        Tuple of ``(restored, updated, skipped, imported_apps)``.
+    """
+    if replace_existing:
+        db.query(GitHubImportedApp).delete()
+        canonical_to_record: Dict[str, GitHubImportedApp] = {}
+    else:
+        canonical_to_record: Dict[str, GitHubImportedApp] = {}
+        for record in db.query(GitHubImportedApp).all():
+            try:
+                key = GitHubAppImporter.normalize_repository_url(record.source_url)
+            except GitHubImportError:
+                key = record.source_url
+            canonical_to_record.setdefault(key, record)
+
+    restored = 0
+    updated = 0
+    skipped = 0
+    imported_apps: Dict[str, App] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            skipped += 1
+            continue
+        try:
+            app_data = entry.get("app")
+            if not isinstance(app_data, dict):
+                skipped += 1
+                continue
+            app = App.model_validate(app_data)
+            source_url = entry.get("source_url") or app.source_url
+            if not source_url:
+                skipped += 1
+                continue
+            try:
+                canonical = GitHubAppImporter.normalize_repository_url(source_url)
+            except GitHubImportError:
+                canonical = source_url
+
+            fallback_full_name = source_url
+            try:
+                owner, repo = GitHubAppImporter.parse_repository_url(source_url)
+                fallback_full_name = f"{owner}/{repo}"
+            except GitHubImportError:
+                pass
+
+            last_imported_at = entry.get("last_imported_at")
+            parsed_last_imported = None
+            if last_imported_at:
+                try:
+                    parsed_last_imported = datetime.fromisoformat(str(last_imported_at))
+                except (TypeError, ValueError):
+                    parsed_last_imported = None
+
+            record = canonical_to_record.get(canonical)
+            if record:
+                record.source_url = canonical
+                record.app_id = app.app_id
+                record.payload_json = serialize_imported_app(app)
+                record.enabled = bool(entry.get("enabled", True))
+                if parsed_last_imported:
+                    record.last_imported_at = parsed_last_imported
+                updated += 1
+            else:
+                record = GitHubImportedApp(
+                    source_url=canonical,
+                    repo_full_name=entry.get("repo_full_name") or fallback_full_name,
+                    app_id=app.app_id,
+                    payload_json=serialize_imported_app(app),
+                    enabled=bool(entry.get("enabled", True)),
+                )
+                if parsed_last_imported:
+                    record.last_imported_at = parsed_last_imported
+                db.add(record)
+                canonical_to_record[canonical] = record
+                restored += 1
+
+            imported_apps[app.app_id] = app
+        except Exception:
+            logger.exception("GitHub import backup skipped an entry")
+            skipped += 1
+
+    return restored, updated, skipped, imported_apps
+
+
+@app.post("/api/imports/github/reset")
+async def reset_github_imports(db: Session = Depends(get_db)) -> dict:
+    """Reset GitHub imports to the bundled default backup (no GitHub calls)."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    backup_path = Path(__file__).parent.parent / "github-imports-backup.json"
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Default backup file not found")
+
+    try:
+        with open(backup_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read default backup file %s", backup_path)
+        raise HTTPException(status_code=500, detail="Could not read the default backup file")
+
+    if data.get("format") != "container-appstore-imports-v1":
+        raise HTTPException(
+            status_code=400,
+            detail='Default backup file has an unsupported format. Expected "container-appstore-imports-v1".',
+        )
+
+    entries = data.get("imports") or []
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="Default backup imports field must be a list")
+
+    restored, updated, skipped, imported_apps = _apply_import_backup_entries(
+        db, entries, replace_existing=True
+    )
+
+    db.commit()
+    git_sync.set_imported_apps(imported_apps)
+
+    return {
+        "status": "success",
+        "message": f"Reset to default: restored {restored} apps, skipped {skipped}.",
+        "restored": restored,
+        "updated": updated,
+        "skipped": skipped,
+        "total": len(entries),
+    }
 
 
 @app.post("/api/imports/github/{import_id}/resync")

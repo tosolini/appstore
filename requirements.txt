@@ -6,5 +6,6 @@ requests==2.33.0
 GitPython==3.1.59
 APScheduler==3.10.4
 python-dotenv==1.2.2
+python-multipart==0.0.20
 sqlalchemy==2.0.23
 cryptography==50.0.0

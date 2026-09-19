@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.0.8** — A Docker app store with dual-backend support, resilient GitHub app importing, and dedicated imports management.
+**v1.1.0** — A Docker app store with dual-backend support, resilient GitHub app importing, full backup/restore, and a dedicated imports management page.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 
@@ -8,10 +8,16 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 
 - Browse apps from multiple Git repositories (CasaOS AppStore, LinuxServer, BigBear, custom)
 - Import standalone GitHub repositories and auto-generate app pages from `docker-compose.yml` or `Dockerfile`
-- Export imported GitHub sources as a distributable URL list or JSON bundle
-- Dedicated GitHub Imports page for resync/delete/export workflows
+- Smart duplicate detection: URLs are canonicalized so `owner/repo`, `owner/repo.git/`, trailing slashes and case variants all resolve to the same import
+- Dedicated GitHub Imports page with **search and pagination** for long catalogs, plus resync/delete/export workflows
+- **Full backup export** — complete app snapshot (compose content, images, metadata) as a single JSON file
+- **One-click restore** from a backup without contacting GitHub (no rate-limit issues)
+- **Full Reset to Default** button in Settings — restores the bundled default catalog
+- Fresh installs are **auto-populated from the bundled backup** (no GitHub calls on first boot)
+- Import error details modal showing exactly why a repository was skipped
 - Import debug badges showing GitHub API, git fallback, or Dockerfile fallback strategy
 - Architecture compatibility detection and warnings for container images that do not support the current host
+- App favicon bundle (`favicon.ico`, SVG/PNG variants, apple-touch-icon, webmanifest)
 - Search, filter by category, paginated browsing
 - Deploy to **Portainer** or **Arcane** with a single click
 - Favorite apps for quick access
@@ -20,12 +26,24 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 - Mock mode for development without real infrastructure
 - Runs entirely in Docker
 
+## Screenshots
+
+| Dashboard | App Detail |
+|-----------|------------|
+| ![Dashboard](docs/screenshots/dashboard.jpeg) | ![App Detail](docs/screenshots/app-detail.jpeg) |
+
+| Docker Compose | Cache Management |
+|----------------|------------------|
+| ![Docker Compose](docs/screenshots/docker-compose.jpeg) | ![Cache Management](docs/screenshots/cache.jpeg) |
+
+Portainer API token setup: ![Portainer API Token](docs/screenshots/portainer_apitoken.jpeg)
+
 ## Quick Start
 
 ```bash
 # Clone and start
-git clone https://github.com/your-org/container-appstore.git
-cd container-appstore
+git clone https://github.com/tosolini/appstore.git
+cd appstore
 cp .env.example .env
 
 # Edit .env with your Arcane or Portainer details
@@ -34,6 +52,8 @@ docker compose up -d --build
 
 # Open http://localhost:8888
 ```
+
+On first boot the app auto-populates the catalog from the bundled default imports backup — no manual GitHub import needed.
 
 ## Backend Selection
 
@@ -52,7 +72,7 @@ See [docs/Arcane-Setup.md](docs/Arcane-Setup.md).
 
 ### Portainer Setup
 
-See [docs/Portainer-Setup.md](docs/wiki/Portainer-Setup.md).
+See [docs/wiki/Portainer-Setup.md](docs/wiki/Portainer-Setup.md).
 
 ## Persistent Data
 
@@ -74,28 +94,46 @@ rm -rf data/
 ## Deployment
 
 ```bash
-# Development
+# Development (build from source)
 docker compose up -d --build
 
-# Production (with custom env)
-docker compose --env-file .env.production up -d
+# Production (prebuilt image from GitHub Container Registry)
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.0`).
+
+## GitHub Imports & Backup
+
+The app can import any public GitHub repository that ships a `docker-compose.yml` or a `Dockerfile`, persisting the generated app directly into the catalog.
+
+- **Import** — paste one URL per line (Settings or the GitHub Imports page), or upload an exported list. URLs are canonicalized, so importing the same repo twice — even with a `.git` suffix or different case — updates the existing entry instead of duplicating it.
+- **Search & paginate** — the GitHub Imports page filters live by name/repo/URL and paginates long catalogs (20 per page).
+- **Backup** — *Export Full Backup* downloads `github-imports-backup.json`, a complete snapshot with compose content, images and metadata. Restoring it requires **no GitHub access**, so catalogs with 100+ apps restore instantly without hitting API rate limits.
+- **Reset** — *Full Reset to Default* in Settings wipes current imports and restores the bundled default set.
+
+The importer:
+
+- falls back to a shallow `git clone` when GitHub API metadata or tree listing is rate-limited
+- accepts non-standard compose filenames such as `docker-compose.dev.yaml` and similar Docker YAML variants
+- inspects container image manifests when possible so imported apps can warn when the current host architecture is not published by one or more referenced images
+- records import debug metadata so you can tell whether an app came from the GitHub API, git fallback, or Dockerfile fallback path
 
 ## Architecture
 
 ```
 frontend/          ← Vue 3 SPA (Vite)
 src/               ← Python FastAPI backend
-  ├── main.py      ← API routes, backend dispatch
+  ├── main.py      ← API routes, backend dispatch, imports/backup/reset
   ├── portainer/   ← Portainer client (kept for compat)
   ├── arcane/      ← Arcane client
-  ├── github_import/ ← GitHub importer + metadata enrichment
+  ├── github_import/ ← GitHub importer + metadata enrichment + URL canonicalization
   ├── parsers/     ← Docker Compose parser
   ├── git_sync/    ← Repository sync
   ├── db/          ← SQLite + SQLAlchemy
   ├── models/      ← Pydantic models
   └── security/    ← Encryption (Fernet)
-docs/              ← User documentation
+docs/              ← User documentation + screenshots
 ```
 
 ## API
@@ -106,7 +144,9 @@ docs/              ← User documentation
 - `POST /apps/{id}/deploy` — Deploy to active backend
 - `GET /api/imports/github` — List imported GitHub apps
 - `POST /api/imports/github` — Import GitHub repositories into the app catalog
-- `GET /api/imports/github/export` — Export imported GitHub repositories as JSON or URL list
+- `GET /api/imports/github/export?format=json|urls|full` — Export imported apps (JSON list, URL list, or full backup)
+- `POST /api/imports/github/restore` — Restore a full backup (multipart file upload, no GitHub calls)
+- `POST /api/imports/github/reset` — Reset imports to the bundled default set
 - `POST /api/imports/github/{id}/resync` — Refresh one imported GitHub app
 - `DELETE /api/imports/github/{id}` — Delete one imported GitHub app
 - `GET /api/settings/backend` — Backend status
@@ -131,12 +171,9 @@ curl -X POST http://localhost:8888/api/imports/github \
 
 Imported repositories are persisted and merged into the normal app list, so they appear in browse/search/detail pages like any other app.
 
-The importer also:
+## Author
+Walter Tosolini https://www.tosolini.info
 
-- falls back to a shallow `git clone` when GitHub API metadata or tree listing is rate-limited
-- accepts non-standard compose filenames such as `docker-compose.dev.yaml` and similar Docker YAML variants
-- inspects container image manifests when possible so imported apps can warn when the current host architecture is not published by one or more referenced images
-- records import debug metadata so you can tell whether an app came from the GitHub API, git fallback, or Dockerfile fallback path
 
 ## License
 

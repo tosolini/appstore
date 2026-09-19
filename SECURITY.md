@@ -62,4 +62,3 @@ Thank you for helping keep appstore secure!
 
 ***
 
-Add this as `SECURITY.md` in your repo root. Replace `[INSERT SECURITY CONTACT EMAIL]` with your preferred contact (e.g., a dedicated security alias). GitHub will automatically detect and link it in issues.

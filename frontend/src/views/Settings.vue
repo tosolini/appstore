@@ -262,13 +262,13 @@
 
       <!-- Repository Management -->
       <div class="settings-section">
-        <h2>App Repositories</h2>
-        <p class="text-muted">Manage multiple app repositories</p>
+        <h2>CasaOS compatibile App Repositories</h2>
+        <p class="text-muted">Manage multiple CasaOS compatible app repositories</p>
 
         <form @submit.prevent="addRepository" class="add-repo-form">
           <div class="form-row">
             <div class="form-group">
-              <label>Repository Name</label>
+              <label>CasaOS Repository Name</label>
               <input v-model="newRepo.name" type="text" placeholder="e.g., My Apps" required>
             </div>
             <div class="form-group">
@@ -286,11 +286,11 @@
               <input v-model.number="newRepo.priority" type="number" placeholder="100" value="100">
             </div>
           </div>
-          <button type="submit" class="btn-add">Add Repository</button>
+          <button type="submit" class="btn-add">Add CasaOS Repository</button>
         </form>
 
         <div v-if="repositories.length === 0" class="no-repos">
-          No repositories configured.
+          No CasaOS repositories configured.
         </div>
 
         <div v-else class="repos-list">
@@ -360,6 +360,17 @@
               <div class="repo-url">{{ result.repository }}</div>
             </div>
             <span :class="['status-pill', result.status]">{{ result.status }}</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border);">
+          <h3 class="section-subtitle">Reset imported apps</h3>
+          <p class="text-muted">Replace all imported GitHub apps with the bundled default set without contacting GitHub.</p>
+          <button type="button" class="btn-delete" :disabled="resettingGithub" @click="resetGitHubImports">
+            {{ resettingGithub ? 'Resetting...' : 'Full Reset to Default' }}
+          </button>
+          <div v-if="githubResetStatus" :class="['status', githubResetStatus.success ? 'success' : 'error']" style="margin-top: 1rem;">
+            {{ githubResetStatus.message }}
           </div>
         </div>
 
@@ -445,6 +456,8 @@ export default {
       githubImportResults: [],
       githubImportStatus: null,
       importingGithub: false,
+      resettingGithub: false,
+      githubResetStatus: null,
       // Mocks
       portainerMockStacks: [],
       arcaneMockProjects: [],
@@ -714,6 +727,30 @@ export default {
       }
     },
 
+    async resetGitHubImports() {
+      if (!confirm('This will replace ALL imported GitHub apps with the bundled default set. Current imports will be removed. Continue?')) return
+
+      this.resettingGithub = true
+      this.githubResetStatus = null
+
+      try {
+        const response = await axios.post('/api/imports/github/reset')
+        this.githubResetStatus = {
+          success: response.data.restored > 0,
+          message: response.data.message
+        }
+        await this.loadSettings()
+      } catch (error) {
+        console.error('Error resetting GitHub imports:', error)
+        this.githubResetStatus = {
+          success: false,
+          message: error.response?.data?.detail || 'Failed to reset GitHub imports'
+        }
+      } finally {
+        this.resettingGithub = false
+      }
+    },
+
     async toggleRepository(repoId, enabled) {
       try {
         const response = await axios.put(`/api/repositories/${repoId}`, { enabled: enabled })
@@ -865,6 +902,12 @@ export default {
   margin-bottom: 1.5rem;
   border-bottom: 2px solid var(--color-primary);
   padding-bottom: 0.5rem;
+  color: var(--color-text-primary);
+}
+
+.section-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
   color: var(--color-text-primary);
 }
 

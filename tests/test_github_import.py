@@ -1,6 +1,16 @@
-import pytest
+import asyncio
+import json
+from io import BytesIO
 
-from src.github_import import GitHubAppImporter, GitHubImportError
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from starlette.datastructures import UploadFile
+
+from src.db.models import Base, GitHubImportedApp
+from src.github_import import GitHubAppImporter, GitHubImportError, serialize_imported_app
+from src.git_sync import GitSync
+from src.models import App
 
 
 class FakeResponse:
@@ -279,3 +289,112 @@ def test_import_repository_requires_docker_assets():
         assert str(exc) == "No docker-compose file or Dockerfile found"
     else:
         raise AssertionError("Expected GitHubImportError")
+
+
+def _make_test_app(app_id="github-unslothai-unsloth", title="unsloth"):
+    return App(
+        app_id=app_id,
+        title=title,
+        description="Unsloth",
+        developer="unslothai",
+        category="Utilities",
+        main_service="unsloth",
+        repository_source="GitHub Imports",
+        source_url="https://github.com/unslothai/unsloth",
+        compose_content="services:\n  unsloth:\n    image: unsloth/unsloth\n",
+        services={},
+    )
+
+
+def test_export_full_and_restore_roundtrip(tmp_path, monkeypatch):
+    import src.main as main
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    session.add(
+        GitHubImportedApp(
+            source_url="https://github.com/unslothai/unsloth",
+            repo_full_name="unslothai/unsloth",
+            app_id="github-unslothai-unsloth",
+            payload_json=serialize_imported_app(_make_test_app()),
+            enabled=True,
+        )
+    )
+    session.commit()
+
+    monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
+
+    resp = asyncio.run(main.export_github_imports(format="full", db=session))
+    data = json.loads(resp.body)
+    assert data["format"] == "container-appstore-imports-v1"
+    assert data["count"] == 1
+    assert data["imports"][0]["source_url"] == "https://github.com/unslothai/unsloth"
+    assert data["imports"][0]["app"]["title"] == "unsloth"
+
+    session.query(GitHubImportedApp).delete()
+    session.commit()
+
+    upload = UploadFile(file=BytesIO(json.dumps(data).encode("utf-8")), filename="backup.json")
+    result = asyncio.run(main.restore_github_imports(file=upload, db=session))
+    assert result["restored"] == 1
+    assert result["skipped"] == 0
+
+    restored = session.query(GitHubImportedApp).first()
+    assert restored.app_id == "github-unslothai-unsloth"
+    assert restored.source_url == "https://github.com/unslothai/unsloth"
+    assert restored.enabled is True
+
+    assert "github-unslothai-unsloth" in main.git_sync.imported_apps
+    session.close()
+
+
+def test_restore_updates_existing_record_by_canonical_url(tmp_path, monkeypatch):
+    import src.main as main
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # Pre-existing record stored with a raw variant of the URL
+    session.add(
+        GitHubImportedApp(
+            source_url="https://github.com/unslothai/unsloth.git",
+            repo_full_name="unslothai/unsloth",
+            app_id="github-unslothai-unsloth",
+            payload_json=serialize_imported_app(_make_test_app(title="old-title")),
+            enabled=True,
+        )
+    )
+    session.commit()
+
+    monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
+
+    backup = {
+        "format": "container-appstore-imports-v1",
+        "generated_at": "2026-09-19T00:00:00",
+        "count": 1,
+        "imports": [
+            {
+                "source_url": "https://github.com/unslothai/unsloth",
+                "repo_full_name": "unslothai/unsloth",
+                "app_id": "github-unslothai-unsloth",
+                "enabled": True,
+                "last_imported_at": "2026-09-19T12:00:00",
+                "app": _make_test_app(title="new-title").model_dump(),
+            }
+        ],
+    }
+    upload = UploadFile(file=BytesIO(json.dumps(backup).encode("utf-8")), filename="backup.json")
+    result = asyncio.run(main.restore_github_imports(file=upload, db=session))
+    assert result["restored"] == 0
+    assert result["updated"] == 1
+
+    restored = session.query(GitHubImportedApp).first()
+    assert restored.source_url == "https://github.com/unslothai/unsloth"
+    app = App.model_validate(json.loads(restored.payload_json))
+    assert app.title == "new-title"
+    session.close()

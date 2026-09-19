@@ -1,9 +1,6 @@
 services:
   appstore-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: container-appstore:latest
+    image: "${APPSTORE_IMAGE:-ghcr.io/tosolini/appstore:latest}"
     container_name: container-appstore-api
     ports:
       - "8888:8888"

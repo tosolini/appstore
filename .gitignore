@@ -63,8 +63,9 @@ htmlcov/
 *.log
 logs/
 
-# Generated GitHub import export (keep only github-imports.txt as seed)
+# Generated GitHub import export artifacts
 github-imports.json
+github-imports.txt
 
 # OS
 .DS_Store

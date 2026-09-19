@@ -65,7 +65,33 @@
             <div class="repo-url">{{ result.repository }}</div>
             <div v-if="result.message" class="repo-meta">{{ result.message }}</div>
           </div>
-          <span :class="['status-pill', result.status]">{{ result.status }}</span>
+          <div class="import-result-actions">
+            <button
+              v-if="result.status === 'skipped'"
+              type="button"
+              class="btn-link"
+              @click="showErrorModal(result)"
+            >
+              View details
+            </button>
+            <span :class="['status-pill', result.status]">{{ result.status }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="errorModal" class="modal-overlay" @click.self="closeErrorModal">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-error-title">
+        <div class="modal-header">
+          <h3 id="import-error-title">Import failed</h3>
+          <button type="button" class="modal-close" aria-label="Close" @click="closeErrorModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-repo">{{ errorModal.repository }}</div>
+          <div class="modal-message">{{ errorModal.message }}</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" @click="closeErrorModal">Close</button>
         </div>
       </div>
     </div>
@@ -132,7 +158,8 @@ export default {
       importFileError: '',
       importing: false,
       importStatus: null,
-      importResults: []
+      importResults: [],
+      errorModal: null
     }
   },
   computed: {
@@ -141,8 +168,10 @@ export default {
       const urls = []
       for (const line of this.importInput.split('\n')) {
         const url = line.trim()
-        if (!url || url.startsWith('#') || seen.has(url)) continue
-        seen.add(url)
+        if (!url || url.startsWith('#')) continue
+        const normalized = this.normalizeRepoUrl(url)
+        if (seen.has(normalized)) continue
+        seen.add(normalized)
         urls.push(url)
       }
       return urls
@@ -156,8 +185,32 @@ export default {
   },
   mounted() {
     this.loadImports()
+    window.addEventListener('keydown', this.handleModalKeydown)
+  },
+  beforeUnmount() {
+    window.removeEventListener('keydown', this.handleModalKeydown)
   },
   methods: {
+    normalizeRepoUrl(url) {
+      let candidate = url.trim()
+      if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`
+      try {
+        const parsed = new URL(candidate)
+        const host = parsed.hostname.toLowerCase()
+        if (host === 'github.com' || host === 'www.github.com') {
+          let path = parsed.pathname
+            .replace(/\.git\/?$/i, '')
+            .replace(/^\/+|\/+$/g, '')
+          const parts = path.split('/').filter(Boolean).slice(0, 2)
+          if (parts.length === 2) {
+            return `https://github.com/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`
+          }
+        }
+      } catch (e) {
+        // fall through to the conservative normalization below
+      }
+      return candidate.replace(/\/+$/, '')
+    },
     async loadImports() {
       this.loading = true
       try {
@@ -323,6 +376,17 @@ export default {
       if (importDebug.import_strategy === 'dockerfile-fallback') return 'dockerfile-fallback'
       if (importDebug.import_strategy === 'git-fallback') return 'git-fallback'
       return 'github-api'
+    },
+    showErrorModal(result) {
+      this.errorModal = result
+    },
+    closeErrorModal() {
+      this.errorModal = null
+    },
+    handleModalKeydown(event) {
+      if (event.key === 'Escape' && this.errorModal) {
+        this.closeErrorModal()
+      }
     }
   }
 }
@@ -594,6 +658,111 @@ export default {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg-tertiary);
+}
+
+.import-result-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.btn-link {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-info);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  opacity: 0.8;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--color-text-primary);
+}
+
+.modal-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
+
+.modal-close:hover {
+  color: var(--color-text-primary);
+}
+
+.modal-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.modal-repo {
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.modal-message {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--color-border);
 }
 
 .status-pill {

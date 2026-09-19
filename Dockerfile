@@ -11,6 +11,7 @@ RUN npm install
 
 # Copy frontend source
 COPY frontend/src ./src
+COPY frontend/public ./public
 COPY frontend/index.html ./index.html
 COPY frontend/vite.config.js ./vite.config.js
 

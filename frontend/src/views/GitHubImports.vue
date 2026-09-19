@@ -137,10 +137,15 @@ export default {
   },
   computed: {
     parsedImportUrls() {
-      return this.importInput
-        .split('\n')
-        .map(url => url.trim())
-        .filter(Boolean)
+      const seen = new Set()
+      const urls = []
+      for (const line of this.importInput.split('\n')) {
+        const url = line.trim()
+        if (!url || url.startsWith('#') || seen.has(url)) continue
+        seen.add(url)
+        urls.push(url)
+      }
+      return urls
     },
     importButtonLabel() {
       if (this.importing) return `Importing ${this.parsedImportUrls.length}…`

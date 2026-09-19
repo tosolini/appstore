@@ -674,10 +674,14 @@ export default {
     },
 
     async importGitHubRepositories() {
-      const repositories = this.githubImportInput
-        .split('\n')
-        .map(url => url.trim())
-        .filter(Boolean)
+      const seen = new Set()
+      const repositories = []
+      for (const line of this.githubImportInput.split('\n')) {
+        const url = line.trim()
+        if (!url || url.startsWith('#') || seen.has(url)) continue
+        seen.add(url)
+        repositories.push(url)
+      }
 
       if (!repositories.length) {
         this.githubImportStatus = {

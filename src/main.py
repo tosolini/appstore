@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.0.8"
+    version="1.0.9"
 )
 
 # CORS
@@ -265,13 +265,26 @@ def sync_seed_imports(reason: str = "startup"):
 
     db = get_db_sync()
     try:
-        existing = {r[0] for r in db.query(GitHubImportedApp.source_url).all()}
+        existing = {}
+        for (url,) in db.query(GitHubImportedApp.source_url).all():
+            try:
+                key = GitHubAppImporter.normalize_repository_url(url)
+            except GitHubImportError:
+                key = url
+            existing[key] = url
 
         urls = _read_github_import_seed()
         if not urls:
             return
 
-        missing = [u for u in urls if u not in existing]
+        missing = []
+        for url in urls:
+            try:
+                key = GitHubAppImporter.normalize_repository_url(url)
+            except GitHubImportError:
+                key = url
+            if key not in existing:
+                missing.append(url)
         if missing:
             logger.info(
                 f"GitHub seed sync ({reason}): {len(missing)} new URLs to import..."
@@ -311,8 +324,13 @@ def sync_seed_imports(reason: str = "startup"):
             "yes",
         )
         if prune:
-            seed_set = set(urls)
-            stale = [u for u in existing if u not in seed_set]
+            seed_set = set()
+            for url in urls:
+                try:
+                    seed_set.add(GitHubAppImporter.normalize_repository_url(url))
+                except GitHubImportError:
+                    seed_set.add(url)
+            stale = [url for key, url in existing.items() if key not in seed_set]
             removed = 0
             for stale_url in stale:
                 record = (
@@ -455,15 +473,21 @@ def _persist_imported_app_record(
 ) -> GitHubImportedApp:
     payload_json = serialize_imported_app(app)
 
+    try:
+        canonical_url = GitHubAppImporter.normalize_repository_url(repository_url)
+    except GitHubImportError:
+        canonical_url = repository_url
+
     if not record:
         record = GitHubImportedApp(
-            source_url=repository_url,
+            source_url=canonical_url,
             repo_full_name=source["repo_full_name"],
             app_id=app.app_id,
             payload_json=payload_json,
         )
         db.add(record)
     else:
+        record.source_url = canonical_url
         record.repo_full_name = source["repo_full_name"]
         record.app_id = app.app_id
         record.payload_json = payload_json
@@ -478,7 +502,7 @@ async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.0.8...")
+    logger.info("Starting AppStore Bridge API v1.0.9...")
     
     # Initialize database
     init_db()
@@ -659,7 +683,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.0.8",
+        "version": "1.0.9",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,
@@ -1092,17 +1116,46 @@ async def import_github_repositories(
     imported_apps = git_sync.imported_apps.copy()
     results = []
 
+    canonical_to_record = {}
+    for record in db.query(GitHubImportedApp).all():
+        try:
+            key = GitHubAppImporter.normalize_repository_url(record.source_url)
+        except GitHubImportError:
+            key = record.source_url
+        canonical_to_record.setdefault(key, record)
+
+    seen_canonical = set()
     for repository_url in repositories:
+        try:
+            canonical_url = GitHubAppImporter.normalize_repository_url(repository_url)
+        except GitHubImportError as exc:
+            logger.warning("GitHub import skipped for %s: %s", repository_url, exc)
+            results.append(
+                {
+                    "repository": repository_url,
+                    "status": "skipped",
+                    "message": str(exc),
+                }
+            )
+            continue
+
+        if canonical_url in seen_canonical:
+            results.append(
+                {
+                    "repository": repository_url,
+                    "status": "skipped",
+                    "message": "Duplicate repository URL in this request; already processed.",
+                }
+            )
+            continue
+        seen_canonical.add(canonical_url)
+
         try:
             app, source = importer.import_repository(repository_url)
 
-            record = (
-                db.query(GitHubImportedApp)
-                .filter(GitHubImportedApp.source_url == repository_url)
-                .first()
-            )
+            record = canonical_to_record.get(canonical_url)
             old_app_id = record.app_id if record else None
-            _persist_imported_app_record(db, record, repository_url, app, source)
+            _persist_imported_app_record(db, record, canonical_url, app, source)
 
             if old_app_id and old_app_id != app.app_id:
                 imported_apps.pop(old_app_id, None)
@@ -1122,7 +1175,16 @@ async def import_github_repositories(
                 {
                     "repository": repository_url,
                     "status": "skipped",
-                    "message": "Import failed for this repository. Check server logs for details.",
+                    "message": str(exc),
+                }
+            )
+        except Exception as exc:
+            logger.exception("GitHub import failed for %s", repository_url)
+            results.append(
+                {
+                    "repository": repository_url,
+                    "status": "skipped",
+                    "message": "Unexpected error while importing this repository.",
                 }
             )
 
@@ -1182,7 +1244,7 @@ async def resync_github_import(import_id: int, db: Session = Depends(get_db)) ->
         app, source = importer.import_repository(record.source_url)
     except GitHubImportError as exc:
         logger.warning("GitHub resync failed for %s: %s", record.source_url, exc)
-        raise HTTPException(status_code=400, detail="Re-import failed for this repository. Check server logs for details.")
+        raise HTTPException(status_code=400, detail=str(exc))
 
     old_app_id = record.app_id
     _persist_imported_app_record(db, record, record.source_url, app, source)

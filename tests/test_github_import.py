@@ -1,3 +1,5 @@
+import pytest
+
 from src.github_import import GitHubAppImporter, GitHubImportError
 
 
@@ -35,6 +37,29 @@ def test_parse_repository_url_accepts_git_suffix():
     assert repo == "demo"
 
 
+def test_parse_repository_url_rejects_non_github_and_invalid_urls():
+    with pytest.raises(GitHubImportError):
+        GitHubAppImporter.parse_repository_url("https://gitlab.com/owner/repo")
+    with pytest.raises(GitHubImportError):
+        GitHubAppImporter.parse_repository_url("https://github.com/onlyowner")
+
+
+def test_normalize_repository_url_treats_url_variants_as_equivalent():
+    variants = [
+        "https://github.com/UnslothAI/Unsloth",
+        "https://github.com/unslothai/unsloth.git",
+        "https://github.com/unslothai/unsloth/",
+        "https://github.com/unslothai/unsloth.git/",
+        "https://github.com/unslothai/unsloth#readme",
+        "https://github.com/unslothai/unsloth/tree/main",
+        "https://github.com/unslothai/unsloth.git/",
+    ]
+    canonical = "https://github.com/unslothai/unsloth"
+    for variant in variants:
+        assert GitHubAppImporter.normalize_repository_url(variant) == canonical
+    assert GitHubAppImporter.normalize_repository_url("https://github.com/unslothai/unsloth") == canonical
+
+
 def test_select_compose_path_prefers_root_over_docs_and_tests():
     path = GitHubAppImporter._select_compose_path(
         [
@@ -56,6 +81,28 @@ def test_select_compose_path_accepts_nonstandard_compose_names():
         ]
     )
     assert path == "docker-compose.dev.yaml"
+
+
+def test_select_compose_path_ignores_ci_workflows_and_substring_names():
+    assert GitHubAppImporter._is_compose_candidate(".github/workflows/studio-composer-compatibility.yml") is False
+    assert GitHubAppImporter._is_compose_candidate(".github/workflows/docker-build.yml") is False
+    assert GitHubAppImporter._is_compose_candidate("studio/composer-settings.yml") is False
+
+    path = GitHubAppImporter._select_compose_path(
+        [
+            "docker/Dockerfile",
+            ".github/workflows/studio-composer-compatibility.yml",
+            ".github/workflows/docker-build.yml",
+        ]
+    )
+    assert path is None
+
+
+def test_select_compose_path_falls_back_to_dockerfile_for_docker_only_repos():
+    path = GitHubAppImporter._select_compose_path(["docker/Dockerfile"])
+    assert path is None
+    dockerfile_path = GitHubAppImporter._select_dockerfile_path(["docker/Dockerfile"])
+    assert dockerfile_path == "docker/Dockerfile"
 
 
 def test_normalize_asset_url_handles_relative_and_blob_urls():

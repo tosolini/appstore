@@ -170,6 +170,18 @@ class GitHubAppImporter:
         return owner, repo
 
     @staticmethod
+    def normalize_repository_url(repository_url: str) -> str:
+        """Return a canonical GitHub repository URL used for duplicate detection.
+
+        Treats trailing slashes, ``.git`` suffixes, scheme/host case and
+        query/fragment as equivalent so ``https://github.com/Owner/Repo``,
+        ``https://github.com/owner/repo.git/`` and ``github.com/owner/repo``
+        all resolve to the same key.
+        """
+        owner, repo = GitHubAppImporter.parse_repository_url(repository_url)
+        return f"https://github.com/{owner.lower()}/{repo.lower()}"
+
+    @staticmethod
     def _build_app_id(owner: str, repo: str) -> str:
         raw = f"github-{owner}-{repo}".lower()
         return re.sub(r"[^a-z0-9-]+", "-", raw).strip("-")
@@ -378,9 +390,14 @@ class GitHubAppImporter:
         basename = path.split("/")[-1].lower()
         if basename in {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}:
             return True
-        if basename.endswith((".yml", ".yaml")) and "compose" in basename:
-            return True
-        if basename.endswith((".yml", ".yaml")) and ("docker" in basename or "stack" in basename):
+        if not basename.endswith((".yml", ".yaml")):
+            return False
+        if ".github" in [segment for segment in path.lower().split("/")]:
+            return False
+        extension = ".yaml" if basename.endswith(".yaml") else ".yml"
+        stem = basename[: -len(extension)]
+        tokens = {token for token in re.split(r"[._\-\s]+", stem) if token}
+        if "compose" in tokens or "stack" in tokens:
             return True
         return False
 

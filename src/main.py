@@ -206,22 +206,8 @@ def _load_seed_urls_from_text(text: str) -> list:
     return list(dict.fromkeys(urls))
 
 
-def _read_github_import_seed() -> list:
-    """Read default GitHub import URLs from a remote URL or the bundled seed file."""
-    seed_url = os.getenv("GITHUB_IMPORT_SEED_URL", "").strip()
-    if seed_url:
-        try:
-            import requests
-
-            resp = requests.get(seed_url, timeout=30)
-            resp.raise_for_status()
-            urls = _load_seed_urls_from_text(resp.text)
-            logger.info(f"Loaded {len(urls)} seed URLs from {seed_url}")
-            return urls
-        except Exception:
-            logger.exception(f"Failed to fetch GITHUB_IMPORT_SEED_URL ({seed_url})")
-            return []
-
+def _read_seed_urls_from_files() -> list:
+    """Read seed URLs from the configured file or bundled candidates."""
     seed_file = os.getenv("GITHUB_IMPORT_SEED_FILE", "").strip()
     candidates = []
     if seed_file:
@@ -237,10 +223,30 @@ def _read_github_import_seed() -> list:
                 logger.info(f"Loaded {len(urls)} seed URLs from {candidate}")
                 return urls
         except Exception:
-            logger.exception(f"Failed to read seed file {candidate}")
-            return []
+            logger.exception(f"Failed to read seed file {candidate}, trying next")
+            continue
     logger.info("No GitHub import seed file found, skipping default import")
     return []
+
+
+def _read_github_import_seed() -> list:
+    """Read default GitHub import URLs from a remote URL or the bundled seed file."""
+    seed_url = os.getenv("GITHUB_IMPORT_SEED_URL", "").strip()
+    if seed_url:
+        try:
+            import requests
+
+            resp = requests.get(seed_url, timeout=30)
+            resp.raise_for_status()
+            urls = _load_seed_urls_from_text(resp.text)
+            logger.info(f"Loaded {len(urls)} seed URLs from {seed_url}")
+            return urls
+        except Exception:
+            logger.exception(
+                f"Failed to fetch GITHUB_IMPORT_SEED_URL ({seed_url}), "
+                "falling back to local seed files"
+            )
+    return _read_seed_urls_from_files()
 
 
 def sync_seed_imports(reason: str = "startup"):
@@ -259,7 +265,7 @@ def sync_seed_imports(reason: str = "startup"):
 
     db = get_db_sync()
     try:
-        existing = {r.source_url for r in db.query(GitHubImportedApp).all()}
+        existing = {r[0] for r in db.query(GitHubImportedApp.source_url).all()}
 
         urls = _read_github_import_seed()
         if not urls:

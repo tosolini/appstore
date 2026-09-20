@@ -5,6 +5,7 @@ import Home from './views/Home.vue'
 import AppDetail from './views/AppDetail.vue'
 import Settings from './views/Settings.vue'
 import GitHubImports from './views/GitHubImports.vue'
+import imageFallback from './directives/imageFallback'
 import './styles/theme.css'
 
 const routes = [
@@ -35,4 +36,7 @@ const router = createRouter({
     routes
 })
 
-createApp(App).use(router).mount('#app')
+const app = createApp(App)
+app.use(router)
+app.directive('img-fallback', imageFallback)
+app.mount('#app')

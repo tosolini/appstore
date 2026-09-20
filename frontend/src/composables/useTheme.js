@@ -11,7 +11,7 @@ export function useTheme() {
         // Aggiorna meta theme-color per mobile
         const metaThemeColor = document.querySelector('meta[name="theme-color"]')
         if (metaThemeColor) {
-            metaThemeColor.setAttribute('content', theme === 'dark' ? '#1a1a1a' : '#667eea')
+            metaThemeColor.setAttribute('content', theme === 'dark' ? '#0a0e1a' : '#f6f7fb')
         }
     }
 

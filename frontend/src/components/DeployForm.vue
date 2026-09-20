@@ -2,37 +2,48 @@
   <form @submit.prevent="submitDeploy" class="deploy-form">
     <div class="form-group">
       <label>Stack Name</label>
-      <input v-model="formData.stack_name" 
-             type="text" 
-             required 
-             placeholder="my-app-stack">
+      <input v-model="formData.stack_name"
+             type="text"
+             required
+             placeholder="my-app-stack"
+             class="input">
       <small class="hint">Name for this deployment (must be unique)</small>
     </div>
 
     <div v-for="param in schema" :key="param.name" class="form-group">
       <label>{{ param.name }}</label>
-      
-      <input v-if="param.type === 'int'" 
+
+      <div v-if="param.type === 'bool'" class="bool-field">
+        <input
+          v-model="formData.env_overrides[param.name]"
+          type="checkbox"
+          class="bool-check"
+          :id="`bool-${param.name}`"
+        >
+        <label :for="`bool-${param.name}`" class="bool-toggle"></label>
+        <span class="bool-text">{{ formData.env_overrides[param.name] ? 'Enabled' : 'Disabled' }}</span>
+      </div>
+
+      <input v-else-if="param.type === 'int'"
              v-model.number="formData.env_overrides[param.name]"
              type="number"
-             :placeholder="param.default || ''">
-      
-      <input v-else-if="param.type === 'port'" 
+             :placeholder="param.default || ''"
+             class="input">
+
+      <input v-else-if="param.type === 'port'"
              v-model.number="formData.env_overrides[param.name]"
              type="number"
              min="1"
              max="65535"
-             :placeholder="param.default || '8000'">
-      
-      <input v-else-if="param.type === 'bool'" 
-             v-model="formData.env_overrides[param.name]"
-             type="checkbox">
-      
-      <input v-else 
+             :placeholder="param.default || '8000'"
+             class="input">
+
+      <input v-else
              v-model="formData.env_overrides[param.name]"
              type="text"
-             :placeholder="param.default || ''">
-      
+             :placeholder="param.default || ''"
+             class="input">
+
       <small v-if="param.required" class="required">Required</small>
       <small v-else>Optional</small>
     </div>
@@ -40,18 +51,19 @@
     <div v-if="volumes && volumes.length > 0" class="volumes-section">
       <h3>Volume Bind Mounts</h3>
       <p class="volumes-hint">Customize host paths for volume mounts (useful for macOS compatibility)</p>
-      
+
       <div v-for="volume in volumes" :key="volume.source" class="form-group volume-group">
         <label>
           <span class="volume-target">{{ volume.target }}</span>
           <span class="volume-service">({{ volume.service }})</span>
         </label>
-        
-        <input 
+
+        <input
           v-model="formData.volume_overrides[volume.source]"
           type="text"
-          :placeholder="volume.source">
-        
+          :placeholder="volume.source"
+          class="input">
+
         <small class="volume-info">
           Original: <code>{{ volume.source }}</code> → Container: <code>{{ volume.target }}</code>
         </small>
@@ -59,10 +71,13 @@
     </div>
 
     <div class="button-group">
-      <button type="submit" class="btn-deploy" :disabled="isSubmitting">
-        {{ isSubmitting ? 'Deploying...' : 'Deploy Stack' }}
+      <button type="submit" class="btn btn-primary btn-deploy" :disabled="isSubmitting">
+        <svg v-if="!isSubmitting" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12M6 11l6 6 6-6M4 21h16" />
+        </svg>
+        {{ isSubmitting ? 'Deploying…' : 'Deploy Stack' }}
       </button>
-      <button v-if="showCancel" type="button" @click="cancelDeploy" class="btn-cancel">
+      <button v-if="showCancel" type="button" @click="cancelDeploy" class="btn btn-ghost">
         Cancel
       </button>
     </div>
@@ -149,7 +164,6 @@ export default {
     initializeVolumeOverrides() {
       this.formData.volume_overrides = {}
       this.volumes.forEach(volume => {
-        // Initialize with original source path
         this.formData.volume_overrides[volume.source] = volume.source
       })
     },
@@ -168,7 +182,6 @@ export default {
       this.deployResult = null
 
       try {
-        // Detect active backend
         const backendResponse = await axios.get('/api/settings/backend')
         this.formData.backend = backendResponse.data.active_backend
 
@@ -222,7 +235,7 @@ export default {
 <style scoped>
 .deploy-form {
   display: grid;
-  gap: 1.5rem;
+  gap: 1.1rem;
 }
 
 .form-group {
@@ -232,48 +245,15 @@ export default {
 
 .form-group label {
   font-weight: 600;
-  margin-bottom: 0.5rem;
+  font-size: 0.88rem;
+  margin-bottom: 0.45rem;
   color: var(--color-text-primary);
-}
-
-.form-group input[type="text"],
-.form-group input[type="number"],
-.form-group input[type="email"],
-.form-group input[type="password"],
-.form-group select,
-.form-group textarea {
-  padding: 0.75rem;
-  border: 2px solid var(--color-border);
-  border-radius: 4px;
-  font-size: 1rem;
-  font-family: inherit;
-  transition: border-color 0.2s;
-  background-color: var(--color-bg-primary);
-  color: var(--color-text-primary);
-}
-
-.form-group input[type="text"]:focus,
-.form-group input[type="number"]:focus,
-.form-group input[type="email"]:focus,
-.form-group input[type="password"]:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.form-group input[type="checkbox"] {
-  width: 24px;
-  height: 24px;
-  cursor: pointer;
-  accent-color: var(--color-primary);
 }
 
 .form-group small {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--color-text-muted);
-  margin-top: 0.25rem;
+  margin-top: 0.3rem;
 }
 
 .form-group small.required {
@@ -282,155 +262,180 @@ export default {
 
 .hint {
   display: block;
-  margin-top: 0.25rem;
 }
 
-.button-group {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 1rem;
-  margin-top: 1.5rem;
+/* Bool switch */
+.bool-field {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
 }
 
-.btn-deploy,
-.btn-cancel {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
+.bool-check {
+  display: none;
 }
 
-.btn-deploy {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
-  color: white;
-}
-
-.btn-deploy:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.btn-deploy:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-cancel {
+.bool-toggle {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: var(--radius-pill);
   background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
   border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
-.btn-cancel:hover {
-  background: var(--color-border);
+.bool-toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transition: transform var(--transition-base), background var(--transition-base);
 }
 
-.deploy-result {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border-left: 4px solid;
+.bool-check:checked + .bool-toggle {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  border-color: transparent;
 }
 
-.deploy-result.success {
-  background: rgba(72, 187, 120, 0.15);
-  border-color: var(--color-success);
-  color: var(--color-success);
+.bool-check:checked + .bool-toggle::after {
+  transform: translateX(20px);
+  background: #fff;
 }
 
-.deploy-result.error {
-  background: rgba(245, 101, 101, 0.15);
-  border-color: var(--color-error);
-  color: var(--color-error);
+.bool-text {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  font-weight: 600;
 }
 
-.result-title {
-  font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: 0.5rem;
-}
-
-.result-message {
-  margin-bottom: 0.5rem;
-}
-
-.result-detail {
-  margin-top: 0.75rem;
-  font-size: 0.95rem;
-}
-
-.result-detail code {
-  background: var(--color-bg-tertiary);
-  padding: 0.25rem 0.5rem;
-  border-radius: 2px;
-  font-family: monospace;
-  color: var(--color-text-primary);
-}
-
-.result-error {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background: var(--color-bg-tertiary);
-  border-radius: 4px;
-  font-size: 0.9rem;
-  max-height: 200px;
-  overflow-y: auto;
-  color: var(--color-text-primary);
-}
-
+/* Volume mounts */
 .volumes-section {
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 2px solid var(--color-border);
+  margin-top: 0.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border-light);
 }
 
 .volumes-section h3 {
-  font-size: 1.1rem;
-  margin-bottom: 0.5rem;
+  font-size: 1.02rem;
+  margin-bottom: 0.3rem;
   color: var(--color-text-primary);
 }
 
 .volumes-hint {
   color: var(--color-text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
+  font-size: 0.84rem;
+  margin-bottom: 1.1rem;
 }
 
 .volume-group {
-  background: var(--color-bg-secondary);
+  background: var(--color-glass);
   padding: 1rem;
-  border-radius: 8px;
-  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  border-left: 3px solid var(--color-primary);
 }
 
 .volume-target {
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-primary);
   font-weight: 600;
+  font-size: 0.88rem;
 }
 
 .volume-service {
-  margin-left: 0.5rem;
+  margin-left: 0.45rem;
   color: var(--color-text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .volume-info {
   display: block;
   margin-top: 0.5rem;
-  color: var(--color-text-secondary);
-  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
 }
 
 .volume-info code {
   background: var(--color-bg-tertiary);
-  padding: 0.2rem 0.4rem;
-  border-radius: 2px;
-  font-family: monospace;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* Buttons */
+.button-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+}
+
+.btn-deploy {
+  width: 100%;
+}
+
+/* Result */
+.deploy-result {
+  margin-top: 0.75rem;
+  padding: 1.1rem 1.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+  animation: popIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.deploy-result.success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: var(--color-success);
+}
+
+.deploy-result.error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: var(--color-error);
+}
+
+.result-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.4rem;
+}
+
+.result-message {
+  margin-bottom: 0.4rem;
+  font-size: 0.92rem;
+}
+
+.result-detail {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.result-detail code {
+  background: var(--color-bg-tertiary);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+}
+
+.result-error {
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--color-text-primary);
 }
 </style>
-

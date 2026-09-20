@@ -269,10 +269,20 @@ export default {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+  position: relative;
 }
 
 .bool-check {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .bool-toggle {
@@ -303,6 +313,12 @@ export default {
 .bool-check:checked + .bool-toggle {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
   border-color: transparent;
+}
+
+.bool-check:focus-visible + .bool-toggle {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.35);
 }
 
 .bool-check:checked + .bool-toggle::after {

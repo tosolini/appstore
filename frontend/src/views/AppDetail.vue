@@ -80,6 +80,7 @@
             role="button"
             tabindex="0"
             @keydown.enter="openLightbox(idx)"
+            @keydown.space.prevent="openLightbox(idx)"
             :aria-label="`Open screenshot ${idx + 1}`"
           >
             <img :src="img" :alt="`Screenshot ${idx + 1}`" class="screenshot" loading="lazy" v-img-fallback>

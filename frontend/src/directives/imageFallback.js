@@ -19,11 +19,18 @@ export const IMAGE_PLACEHOLDER =
 
 export default {
   mounted(el, binding) {
-    el.addEventListener('error', function handler() {
+    const handler = function () {
       if (el.dataset.imgFallback === '1') return
       el.dataset.imgFallback = '1'
       el.src = binding.value || IMAGE_PLACEHOLDER
-      el.removeEventListener('error', handler)
-    })
+    }
+    el._imgFallbackHandler = handler
+    el.addEventListener('error', handler)
+  },
+  unmounted(el) {
+    if (el._imgFallbackHandler) {
+      el.removeEventListener('error', el._imgFallbackHandler)
+      delete el._imgFallbackHandler
+    }
   }
 }

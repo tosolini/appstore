@@ -68,6 +68,9 @@ services:
       ARCANE_VERIFY_SSL: "${ARCANE_VERIFY_SSL:-false}"
       ARCANE_MODE: "${ARCANE_MODE:-auto}"
 
+      # GitHub token (optional) — avoids API rate-limit 403s during imports
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
     volumes:
       - ./data:/app/data
       - appstore_cache:/app/cache

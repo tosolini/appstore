@@ -1968,15 +1968,19 @@ class SPAStaticFiles(StaticFiles):
     """StaticFiles che fa fallback a index.html per i percorsi sconosciuti
     (necessario per il routing client-side del frontend Vue in history mode)."""
 
+    @staticmethod
+    def _is_api_path(path: str) -> bool:
+        return path == "api" or path.startswith("api/")
+
     async def get_response(self, path: str, scope):
         try:
             response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if path.startswith("api/"):
+            if self._is_api_path(path):
                 raise exc
             response = None
 
-        if response is None or (response.status_code == 404 and not path.startswith("api/")):
+        if response is None or (response.status_code == 404 and not self._is_api_path(path)):
             return await super().get_response("index.html", scope)
 
         return response

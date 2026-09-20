@@ -25,7 +25,7 @@
             class="search-input"
             @input="handleSearch"
           >
-          <span v-if="searchQuery" class="search-clear" @click="clearSearch">✕</span>
+          <button v-if="searchQuery" type="button" class="search-clear" @click="clearSearch" aria-label="Clear search">✕</button>
         </div>
 
         <div class="category-chips">
@@ -434,6 +434,8 @@ export default {
   color: var(--color-text-muted);
   font-size: 0.8rem;
   background: var(--color-bg-tertiary);
+  border: none;
+  padding: 0;
   transition: all var(--transition-fast);
 }
 

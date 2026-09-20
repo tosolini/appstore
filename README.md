@@ -136,6 +136,8 @@ The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatic
 
 The app can import any public GitHub repository that ships a `docker-compose.yml` or a `Dockerfile`, persisting the generated app directly into the catalog.
 
+> **Tip:** set `GITHUB_TOKEN` in `.env` to avoid GitHub API rate-limit `403`s during imports. Without a token the importer falls back to shallow `git clone` / HTML metadata, which still works but is slower and less reliable for large catalogs.
+
 - **Import** — paste one URL per line (Settings or the GitHub Imports page), or upload an exported list. URLs are canonicalized, so importing the same repo twice — even with a `.git` suffix or different case — updates the existing entry instead of duplicating it.
 - **Search & paginate** — the GitHub Imports page filters live by name/repo/URL and paginates long catalogs (20 per page).
 - **Backup** — *Export Full Backup* downloads `github-imports-backup.json`, a complete snapshot with compose content, images and metadata. Restoring it requires **no GitHub access**, so catalogs with 100+ apps restore instantly without hitting API rate limits.

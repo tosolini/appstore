@@ -2,6 +2,10 @@ services:
   appstore-api:
     image: "${APPSTORE_IMAGE:-ghcr.io/tosolini/appstore:latest}"
     container_name: container-appstore-api
+    # Starts as root only to fix ownership of bind-mounted ./data (owned by the
+    # host user); the entrypoint then drops privileges to the non-root app user.
+    # Without this, a root-created ./data makes the app unable to write the DB.
+    user: "0"
     ports:
       - "8888:8888"
     environment:
@@ -61,6 +65,9 @@ services:
       ARCANE_ENVIRONMENT_ID: "${ARCANE_ENVIRONMENT_ID:-0}"
       ARCANE_VERIFY_SSL: "${ARCANE_VERIFY_SSL:-false}"
       ARCANE_MODE: "${ARCANE_MODE:-auto}"
+
+      # GitHub token (optional) — avoids API rate-limit 403s during imports
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
 
     volumes:
       - ./data:/app/data

@@ -33,7 +33,11 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies.
+# setuptools is uninstalled afterwards to drop its vendored wheel/jaraco
+# packages (flagged by Trivy). This is safe: no runtime dependency uses
+# pkg_resources/setuptools — verified by importing all app modules and
+# booting the server (health check passes) without it.
 RUN pip install --no-cache-dir -r requirements.txt \
     && (pip uninstall -y setuptools 2>/dev/null || true)
 

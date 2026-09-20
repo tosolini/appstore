@@ -177,6 +177,17 @@
                 <dt>Repository</dt>
                 <dd class="mono">{{ app.repository_source }}</dd>
               </div>
+              <div class="info-item" v-if="app.source_url">
+                <dt>Source</dt>
+                <dd>
+                  <a :href="app.source_url" target="_blank" rel="noopener noreferrer" class="source-link">
+                    GitHub
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M7 17 17 7M9 7h8v8" />
+                    </svg>
+                  </a>
+                </dd>
+              </div>
               <div class="info-item">
                 <dt>Main Service</dt>
                 <dd class="mono">{{ app.main_service }}</dd>
@@ -906,6 +917,27 @@ export default {
 .info-item dd.mono {
   font-family: var(--font-mono);
   font-size: 0.82rem;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--color-primary);
+  padding: 0.25rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: rgba(109, 124, 255, 0.12);
+  border: 1px solid rgba(109, 124, 255, 0.3);
+  transition: all var(--transition-fast);
+}
+
+.source-link:hover {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  border-color: transparent;
+  box-shadow: var(--glow-primary);
 }
 
 /* ---------- Responsive ---------- */

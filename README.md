@@ -1,8 +1,10 @@
 # Container AppStore Bridge
 
-**v1.1.0** — A Docker app store with dual-backend support, resilient GitHub app importing, full backup/restore, and a dedicated imports management page.
+**v1.1.1** — A Docker app store with dual-backend support, resilient GitHub app importing, full backup/restore, a dedicated imports management page, and a premium dark-first UI.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
+
+![Dashboard](docs/screenshots/dashboard.jpeg)
 
 ## Features
 
@@ -17,11 +19,15 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 - Import error details modal showing exactly why a repository was skipped
 - Import debug badges showing GitHub API, git fallback, or Dockerfile fallback strategy
 - Architecture compatibility detection and warnings for container images that do not support the current host
-- App favicon bundle (`favicon.ico`, SVG/PNG variants, apple-touch-icon, webmanifest)
+- App favicon bundle (`favicon.ico`, SVG/PNG variants, apple-touch-icon, webmanifest) with a consistent branded mark
 - Search, filter by category, paginated browsing
 - Deploy to **Portainer** or **Arcane** with a single click
 - Favorite apps for quick access
 - Dynamic deploy form (env vars, volume bind mounts)
+- **Premium dark-first UI** — glassmorphism design system with ambient glows, custom typography (Bricolage Grotesque + Manrope), glowing cards and micro-interactions
+- Backend configuration (Portainer/Arcane) grouped into clean **tabs** in Settings
+- **Broken-image fallback** — app icons/screenshots that 404 on the remote host automatically show a placeholder
+- **SPA refresh support** — refreshing any route (`/settings`, `/app/...`, `/imports/github`) no longer returns a 404; deep links work directly
 - Light/dark theme with improved screenshot lightbox controls
 - Mock mode for development without real infrastructure
 - Runs entirely in Docker
@@ -35,6 +41,13 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 | Docker Compose | Cache Management |
 |----------------|------------------|
 | ![Docker Compose](docs/screenshots/docker-compose.jpeg) | ![Cache Management](docs/screenshots/cache.jpeg) |
+| Deploy container | Check arch |
+|----------------|------------------|
+| ![Deploy container](docs/screenshots/deploy.jpeg) | ![Check arch](docs/screenshots/check-arch.jpeg) |
+| GitHub Import |  Settings |
+|---------------|----------|
+| ![GitHub Import](docs/screenshots/github-import.jpeg) | ![Settings](docs/screenshots/settings.jpeg) |
+
 
 Portainer API token setup: ![Portainer API Token](docs/screenshots/portainer_apitoken.jpeg)
 
@@ -54,6 +67,22 @@ docker compose up -d --build
 ```
 
 On first boot the app auto-populates the catalog from the bundled default imports backup — no manual GitHub import needed.
+
+## Common Commands (Makefile)
+
+A `Makefile` wraps the most common Docker Compose tasks:
+
+```bash
+make up        # Start containers in background
+make down      # Stop and remove containers
+make build     # Build the image
+make rebuild   # Build → down → up (full restart with fresh image)
+make restart   # Restart containers
+make logs      # Follow API logs
+make shell     # Interactive shell in the API container
+make ps        # Container status
+make help      # List all commands
+```
 
 ## Backend Selection
 
@@ -123,8 +152,13 @@ The importer:
 
 ```
 frontend/          ← Vue 3 SPA (Vite)
+  ├── src/views/   ← Pages (Home, AppDetail, Settings, GitHubImports)
+  ├── src/components/ ← Reusable components (DeployForm)
+  ├── src/directives/ ← Global directives (e.g. broken-image fallback)
+  ├── src/styles/   ← Design system (theme.css, CSS variables, light/dark)
+  └── public/       ← PWA icons (favicon, apple-touch-icon, webmanifest)
 src/               ← Python FastAPI backend
-  ├── main.py      ← API routes, backend dispatch, imports/backup/reset
+  ├── main.py      ← API routes, backend dispatch, imports/backup/reset, SPA fallback
   ├── portainer/   ← Portainer client (kept for compat)
   ├── arcane/      ← Arcane client
   ├── github_import/ ← GitHub importer + metadata enrichment + URL canonicalization

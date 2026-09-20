@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Query, Depends, Request, UploadFile,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 import json
@@ -1963,10 +1964,28 @@ async def mock_reset() -> dict:
 
 
 # Mount static files (Vue frontend) with SPA fallback
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles che fa fallback a index.html per i percorsi sconosciuti
+    (necessario per il routing client-side del frontend Vue in history mode)."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if path.startswith("api/"):
+                raise exc
+            response = None
+
+        if response is None or (response.status_code == 404 and not path.startswith("api/")):
+            return await super().get_response("index.html", scope)
+
+        return response
+
+
 public_dir = Path(__file__).parent.parent / "public"
 if public_dir.exists():
-    app.mount("/", StaticFiles(directory=str(public_dir), html=True), name="static")
-    logger.info(f"Static files mounted from {public_dir}")
+    app.mount("/", SPAStaticFiles(directory=str(public_dir), html=True), name="static")
+    logger.info(f"Static files mounted from {public_dir} (SPA fallback enabled)")
 else:
     logger.warning(f"Static files directory not found: {public_dir}")
 

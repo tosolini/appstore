@@ -23,8 +23,9 @@ FROM python:3.11.15-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies and apply security patches
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -33,7 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && (pip uninstall -y setuptools 2>/dev/null || true)
 
 # Copy app code
 COPY src/ src/
@@ -47,11 +49,20 @@ COPY --from=frontend-builder /frontend/dist /app/public
 # Create cache and data directories
 RUN mkdir -p cache data
 
+# Non-root user (least privilege)
+RUN useradd --uid 10001 --create-home appuser \
+    && chown -R appuser:appuser /app
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV CACHE_DIR=/app/cache
 ENV DATABASE_URL=sqlite:////app/data/appstore.db
+ENV HOME=/home/appuser
+
+# Copy entrypoint (fixes bind-mounted volume ownership, then drops privileges)
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose port
 EXPOSE 8888
@@ -60,5 +71,7 @@ EXPOSE 8888
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8888/health || exit 1
 
-# Run FastAPI with SPA fallback
+USER appuser
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8888"]

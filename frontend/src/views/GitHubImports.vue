@@ -1,18 +1,23 @@
 <template>
   <div class="imports-page">
-    <div class="page-header">
+    <header class="page-head reveal">
       <div>
         <h1>GitHub Imports</h1>
         <p class="text-muted">Manage imported GitHub apps, export the source list, and inspect import strategy details.</p>
       </div>
-      <router-link to="/settings" class="btn-secondary">← Back to Settings</router-link>
-    </div>
+      <router-link to="/settings" class="btn btn-ghost">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5M11 18l-6-6 6-6" />
+        </svg>
+        Back to Settings
+      </router-link>
+    </header>
 
-    <div class="toolbar">
-      <button type="button" class="btn-test" @click="exportGitHubImports('json')">Export JSON</button>
-      <button type="button" class="btn-test" @click="exportGitHubImports('urls')">Export URL List</button>
-      <button type="button" class="btn-test" @click="exportGitHubImports('full')">Export Full Backup</button>
-      <label class="btn-secondary file-label">
+    <div class="toolbar reveal" :style="{ animationDelay: '50ms' }">
+      <button type="button" class="btn btn-primary btn-sm" @click="exportGitHubImports('json')">Export JSON</button>
+      <button type="button" class="btn btn-ghost btn-sm" @click="exportGitHubImports('urls')">Export URL List</button>
+      <button type="button" class="btn btn-accent btn-sm" @click="exportGitHubImports('full')">Export Full Backup</button>
+      <label class="btn btn-ghost btn-sm file-label">
         {{ restoring ? 'Restoring…' : 'Restore backup…' }}
         <input
           ref="restoreFile"
@@ -22,16 +27,16 @@
           @change="handleRestoreFile"
         />
       </label>
-      <button type="button" class="btn-secondary" @click="loadImports" :disabled="loading">
-        {{ loading ? 'Refreshing...' : 'Refresh' }}
+      <button type="button" class="btn btn-ghost btn-sm" @click="loadImports" :disabled="loading">
+        {{ loading ? 'Refreshing…' : 'Refresh' }}
       </button>
     </div>
 
-    <div v-if="restoreStatus" :class="['status', restoreStatus.success ? 'success' : 'error']">
+    <div v-if="restoreStatus" class="status-banner" :class="restoreStatus.success ? 'success' : 'error'">
       {{ restoreStatus.message }}
     </div>
 
-    <div class="import-section">
+    <div class="import-section reveal" :style="{ animationDelay: '80ms' }">
       <h2>Import list</h2>
       <p class="text-muted">Paste repository URLs (one per line) or upload a previously exported list (<code>github-imports.json</code> / <code>github-imports.txt</code>).</p>
 
@@ -40,9 +45,10 @@
           v-model="importInput"
           rows="5"
           placeholder="https://github.com/example/project&#10;https://github.com/example/another-project"
+          class="input mono"
         ></textarea>
         <div class="import-actions">
-          <label class="btn-secondary file-label">
+          <label class="btn btn-ghost btn-sm file-label">
             Choose file…
             <input
               ref="importFile"
@@ -55,7 +61,7 @@
           <span v-if="importFileName" class="file-name">{{ importFileName }}</span>
           <button
             type="button"
-            class="btn-test"
+            class="btn btn-primary btn-sm"
             :disabled="importing || !parsedImportUrls.length"
             @click="importRepositories"
           >
@@ -65,7 +71,7 @@
         <small v-if="importFileError" class="error-text">{{ importFileError }}</small>
       </div>
 
-      <div v-if="importStatus" :class="['status', importStatus.success ? 'success' : 'error']">
+      <div v-if="importStatus" class="status-banner" :class="importStatus.success ? 'success' : 'error'">
         {{ importStatus.message }}
       </div>
 
@@ -89,7 +95,7 @@
             >
               View details
             </button>
-            <span :class="['status-pill', result.status]">{{ result.status }}</span>
+            <span :class="['badge', result.status === 'imported' ? 'badge-success' : 'badge-warning']">{{ result.status }}</span>
           </div>
         </div>
       </div>
@@ -106,60 +112,66 @@
           <div class="modal-message">{{ errorModal.message }}</div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn-secondary" @click="closeErrorModal">Close</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeErrorModal">Close</button>
         </div>
       </div>
     </div>
 
-    <div class="import-debug-legend">
+    <div class="import-debug-legend reveal">
       <span class="import-debug-legend-label">Import debug:</span>
-      <span class="import-debug-badge github-api">GitHub API</span>
-      <span class="import-debug-badge git-fallback">git fallback</span>
-      <span class="import-debug-badge dockerfile-fallback">Dockerfile fallback</span>
+      <span class="badge badge-success">GitHub API</span>
+      <span class="badge badge-warning">git fallback</span>
+      <span class="badge badge-info">Dockerfile fallback</span>
     </div>
 
-    <div v-if="githubImports.length" class="list-toolbar">
-      <input
-        v-model="searchQuery"
-        type="search"
-        class="search-input"
-        placeholder="Search by name, repo or URL…"
-      />
+    <div v-if="githubImports.length" class="list-toolbar reveal">
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="search-input"
+          placeholder="Search by name, repo or URL…"
+        />
+      </div>
       <span class="list-count">{{ filteredImports.length }} of {{ githubImports.length }}</span>
     </div>
 
-    <div v-if="loading" class="empty-state">Loading imports...</div>
+    <div v-if="loading" class="empty-state">Loading imports…</div>
     <div v-else-if="githubImports.length === 0" class="empty-state">No GitHub imports yet.</div>
     <div v-else-if="filteredImports.length === 0" class="empty-state">No imports match your search.</div>
 
     <div v-else class="repos-list">
-      <div v-for="importedApp in paginatedImports" :key="importedApp.id" class="repo-item">
+      <div v-for="importedApp in paginatedImports" :key="importedApp.id" class="repo-item reveal">
         <div class="repo-info">
           <div class="repo-name">{{ importedApp.title }}</div>
-          <div class="repo-url">{{ importedApp.source_url }}</div>
+          <div class="repo-url mono">{{ importedApp.source_url }}</div>
           <div class="repo-meta">
-            <span>{{ importedApp.repo_full_name }}</span>
+            <span class="badge">{{ importedApp.repo_full_name }}</span>
             <span
               v-if="importedApp.import_debug"
-              :class="['import-debug-badge', importDebugClass(importedApp.import_debug)]">
+              :class="['badge', importDebugClass(importedApp.import_debug)]">
               {{ formatImportDebug(importedApp.import_debug) }}
             </span>
             <span v-if="importedApp.compatibility_status === 'warning'" class="warning-text">
               No {{ importedApp.host_architecture }} image
             </span>
-            <span v-if="importedApp.last_imported_at">Last import: {{ formatDate(importedApp.last_imported_at) }}</span>
+            <span v-if="importedApp.last_imported_at" class="badge">last import: {{ formatDate(importedApp.last_imported_at) }}</span>
           </div>
         </div>
         <div class="repo-actions">
           <button
             @click="resyncGitHubImport(importedApp.id)"
-            class="btn-sync"
+            class="btn btn-accent btn-sm"
             :disabled="githubImportBusy[importedApp.id]">
-            {{ githubImportBusy[importedApp.id] ? 'Syncing...' : 'Resync' }}
+            {{ githubImportBusy[importedApp.id] ? 'Syncing…' : 'Resync' }}
           </button>
           <button
             @click="deleteGitHubImport(importedApp.id)"
-            class="btn-delete"
+            class="btn btn-soft-danger btn-sm"
             :disabled="githubImportBusy[importedApp.id]">
             Delete
           </button>
@@ -337,7 +349,6 @@ export default {
           return
         }
 
-        // Try exported JSON first: { repositories: [...] }
         if (file.name.endsWith('.json') || trimmed.startsWith('{')) {
           try {
             const parsed = JSON.parse(trimmed)
@@ -355,7 +366,6 @@ export default {
           }
         }
 
-        // Plain-text URL list (exported .txt): one URL per line, ignore blanks/comments
         const urls = trimmed
           .split('\n')
           .map(line => line.trim())
@@ -369,7 +379,6 @@ export default {
         console.error('Error reading import file:', error)
         this.importFileError = 'Failed to read selected file.'
       } finally {
-        // Allow re-selecting the same file
         if (this.$refs.importFile) this.$refs.importFile.value = ''
       }
     },
@@ -505,9 +514,9 @@ export default {
     },
     importDebugClass(importDebug) {
       if (!importDebug) return ''
-      if (importDebug.import_strategy === 'dockerfile-fallback') return 'dockerfile-fallback'
-      if (importDebug.import_strategy === 'git-fallback') return 'git-fallback'
-      return 'github-api'
+      if (importDebug.import_strategy === 'dockerfile-fallback') return 'badge-info'
+      if (importDebug.import_strategy === 'git-fallback') return 'badge-warning'
+      return 'badge-success'
     },
     showErrorModal(result) {
       this.errorModal = result
@@ -527,81 +536,136 @@ export default {
 <style scoped>
 .imports-page {
   display: grid;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
-.page-header {
+.page-head {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
-.page-header h1 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  color: var(--color-text-primary);
+.page-head h1 {
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 750;
+  margin-bottom: 0.35rem;
 }
 
 .text-muted {
   color: var(--color-text-secondary);
+  font-size: 0.92rem;
 }
 
 .toolbar {
   display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Import section */
+.import-section {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--color-glass);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.import-section h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--color-text-primary);
+}
+
+.import-section code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-bg-tertiary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.import-controls {
+  display: grid;
   gap: 0.75rem;
+}
+
+.import-controls textarea {
+  resize: vertical;
+}
+
+.import-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
   flex-wrap: wrap;
 }
 
-.btn-test,
-.btn-secondary,
-.btn-sync,
-.btn-delete {
-  padding: 0.75rem 1.25rem;
-  border: none;
-  border-radius: 4px;
+.file-label {
   cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: all 0.2s ease;
 }
 
-.btn-test {
-  background: var(--color-info);
-  color: white;
+.file-input {
+  display: none;
 }
 
-.btn-secondary {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
+.file-name {
+  font-size: 0.88rem;
+  color: var(--color-text-secondary);
+}
+
+.error-text {
+  color: var(--color-error);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.import-results {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.import-result-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-glass);
 }
 
-.btn-sync {
-  background: var(--color-warning);
-  color: #333;
+.import-result-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-.btn-delete {
-  background: var(--color-error);
-  color: white;
+.btn-link {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: underline;
 }
 
-.btn-test:hover,
-.btn-secondary:hover,
-.btn-sync:hover,
-.btn-delete:hover {
-  opacity: 0.92;
+.btn-link:hover {
+  opacity: 0.8;
 }
 
-.btn-sync:disabled,
-.btn-delete:disabled,
-.btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* Legend */
 .import-debug-legend {
   display: flex;
   flex-wrap: wrap;
@@ -610,53 +674,12 @@ export default {
 }
 
 .import-debug-legend-label {
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.88rem;
+  font-weight: 700;
   color: var(--color-text-secondary);
 }
 
-.import-debug-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  border: 1px solid transparent;
-}
-
-.import-debug-badge.github-api {
-  background: rgba(34, 197, 94, 0.14);
-  border-color: rgba(34, 197, 94, 0.28);
-  color: #15803d;
-}
-
-.import-debug-badge.git-fallback {
-  background: rgba(245, 158, 11, 0.14);
-  border-color: rgba(245, 158, 11, 0.28);
-  color: #b45309;
-}
-
-.import-debug-badge.dockerfile-fallback {
-  background: rgba(59, 130, 246, 0.14);
-  border-color: rgba(59, 130, 246, 0.28);
-  color: #1d4ed8;
-}
-
-.warning-text {
-  color: #b45309;
-  font-weight: 600;
-}
-
-.empty-state {
-  background: var(--color-bg-secondary);
-  border: 1px dashed var(--color-border);
-  border-radius: 8px;
-  padding: 2rem;
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
+/* List */
 .list-toolbar {
   display: flex;
   gap: 0.75rem;
@@ -664,15 +687,36 @@ export default {
   flex-wrap: wrap;
 }
 
-.search-input {
+.search-wrap {
+  position: relative;
   flex: 1;
-  min-width: 200px;
-  padding: 0.6rem 0.85rem;
+  min-width: 220px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.65rem 1rem 0.65rem 2.5rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass);
   color: var(--color-text-primary);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
+  transition: all var(--transition-fast);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.18);
 }
 
 .search-input::placeholder {
@@ -680,11 +724,84 @@ export default {
 }
 
 .list-count {
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--color-text-secondary);
   white-space: nowrap;
+  font-weight: 600;
 }
 
+.empty-state {
+  background: var(--color-glass);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+/* Repo list */
+.repos-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.repo-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-glass);
+  transition: border-color var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.repo-item:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.repo-info {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.repo-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--color-text-primary);
+}
+
+.repo-url {
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+
+.repo-meta {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  align-items: center;
+}
+
+.warning-text {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
+.repo-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Pagination */
 .pagination {
   display: flex;
   gap: 0.35rem;
@@ -695,26 +812,28 @@ export default {
 }
 
 .page-btn {
-  min-width: 2.25rem;
-  padding: 0.4rem 0.75rem;
+  min-width: 2.4rem;
+  padding: 0.45rem 0.8rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass);
   color: var(--color-text-primary);
   cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
 }
 
 .page-btn:hover:not(:disabled) {
-  background: var(--color-info);
-  color: white;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .page-btn.active {
-  background: var(--color-info);
-  color: white;
-  border-color: var(--color-info);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--glow-primary);
 }
 
 .page-btn:disabled {
@@ -727,163 +846,7 @@ export default {
   padding: 0 0.15rem;
 }
 
-.repos-list {
-  display: grid;
-  gap: 1.5rem;
-}
-
-.repo-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2rem;
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-secondary);
-}
-
-.repo-info {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.repo-name {
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: var(--color-text-primary);
-}
-
-.repo-url {
-  color: var(--color-text-secondary);
-  font-size: 0.95rem;
-  word-break: break-all;
-}
-
-.repo-meta {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
-.repo-actions {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 0.5rem;
-}
-
-.import-section {
-  display: grid;
-  gap: 1rem;
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-secondary);
-}
-
-.import-section h2 {
-  margin: 0;
-  font-size: 1.25rem;
-  color: var(--color-text-primary);
-}
-
-.import-controls {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.import-controls textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 0.9rem;
-  resize: vertical;
-}
-
-.import-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.file-label {
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.file-input {
-  display: none;
-}
-
-.file-name {
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-}
-
-.status {
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.status.success {
-  background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
-}
-
-.status.error {
-  background: rgba(239, 68, 68, 0.14);
-  color: #b91c1c;
-}
-
-.error-text {
-  color: #b91c1c;
-  font-size: 0.9rem;
-}
-
-.import-results {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.import-result-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-tertiary);
-}
-
-.import-result-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.btn-link {
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: var(--color-info);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: underline;
-}
-
-.btn-link:hover {
-  opacity: 0.8;
-}
-
+/* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -892,7 +855,10 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(3, 6, 14, 0.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: fadeIn 180ms ease;
 }
 
 .modal {
@@ -902,9 +868,10 @@ export default {
   display: flex;
   flex-direction: column;
   background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: popIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .modal-header {
@@ -918,7 +885,7 @@ export default {
 
 .modal-header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: var(--color-text-primary);
 }
 
@@ -926,9 +893,10 @@ export default {
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   line-height: 1;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
 }
 
 .modal-close:hover {
@@ -943,7 +911,7 @@ export default {
 }
 
 .modal-repo {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   color: var(--color-text-secondary);
   word-break: break-all;
 }
@@ -951,10 +919,10 @@ export default {
 .modal-message {
   padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--color-bg-tertiary);
-  font-family: monospace;
-  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
   color: var(--color-text-primary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -967,28 +935,8 @@ export default {
   border-top: 1px solid var(--color-border);
 }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-.status-pill.imported {
-  background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
-}
-
-.status-pill.skipped {
-  background: rgba(245, 158, 11, 0.14);
-  color: #b45309;
-}
-
 @media (max-width: 768px) {
-  .page-header,
+  .page-head,
   .repo-item {
     grid-template-columns: 1fr;
     display: grid;

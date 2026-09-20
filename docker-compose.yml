@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     image: container-appstore:latest
     container_name: container-appstore-api
+    # Starts as root only to fix ownership of bind-mounted ./data (owned by the
+    # host user); the entrypoint then drops privileges to the non-root app user.
+    user: "0"
     ports:
       - "8888:8888"
     environment:

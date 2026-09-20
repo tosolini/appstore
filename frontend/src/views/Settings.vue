@@ -1,215 +1,285 @@
 <template>
   <div class="settings-page">
-    <h1>Settings</h1>
+    <header class="page-head reveal">
+      <div>
+        <h1>Settings</h1>
+        <p class="text-muted">Deployment backends, repositories, cache and app display options.</p>
+      </div>
+    </header>
 
     <div class="settings-container">
       <!-- Backend Selector -->
-      <div class="settings-section">
+      <section class="panel settings-section reveal">
         <h2>Deployment Backend</h2>
         <p class="text-muted">Choose which container management platform to use for deployments</p>
 
         <div class="backend-selector">
-          <div class="backend-option" 
+          <div class="backend-option"
                :class="{ active: activeBackend === 'portainer', available: backends.portainer?.configured }"
-               @click="selectBackend('portainer')">
-            <div class="backend-icon">
-              <span class="backend-indicator" :class="backends.portainer?.mode"></span>
-            </div>
+               @click="selectBackend('portainer')"
+               role="button"
+               tabindex="0"
+               @keydown.enter="selectBackend('portainer')">
+            <span class="backend-indicator" :class="backends.portainer?.mode"></span>
             <div class="backend-info">
               <strong>Portainer</strong>
               <span class="backend-status">
                 Mode: {{ (backends.portainer?.mode || 'mock').toUpperCase() }}
               </span>
-              <span v-if="backends.portainer?.connected" class="status-connected">Connected</span>
-              <span v-else class="status-disconnected">Not connected</span>
+              <span v-if="backends.portainer?.connected" class="status-connected">
+                <span class="dot"></span> Connected
+              </span>
+              <span v-else class="status-disconnected">
+                <span class="dot"></span> Not connected
+              </span>
             </div>
-            <div v-if="activeBackend === 'portainer'" class="active-badge">ACTIVE</div>
+            <div v-if="activeBackend === 'portainer'" class="active-badge">
+              <span class="pulse"></span> ACTIVE
+            </div>
           </div>
 
           <div class="backend-option"
                :class="{ active: activeBackend === 'arcane', available: backends.arcane?.configured }"
-               @click="selectBackend('arcane')">
-            <div class="backend-icon">
-              <span class="backend-indicator" :class="backends.arcane?.mode"></span>
-            </div>
+               @click="selectBackend('arcane')"
+               role="button"
+               tabindex="0"
+               @keydown.enter="selectBackend('arcane')">
+            <span class="backend-indicator" :class="backends.arcane?.mode"></span>
             <div class="backend-info">
               <strong>Arcane</strong>
               <span class="backend-status">
                 Mode: {{ (backends.arcane?.mode || 'mock').toUpperCase() }}
               </span>
-              <span v-if="backends.arcane?.connected" class="status-connected">Connected</span>
-              <span v-else class="status-disconnected">Not connected</span>
+              <span v-if="backends.arcane?.connected" class="status-connected">
+                <span class="dot"></span> Connected
+              </span>
+              <span v-else class="status-disconnected">
+                <span class="dot"></span> Not connected
+              </span>
             </div>
-            <div v-if="activeBackend === 'arcane'" class="active-badge">ACTIVE</div>
+            <div v-if="activeBackend === 'arcane'" class="active-badge">
+              <span class="pulse"></span> ACTIVE
+            </div>
           </div>
         </div>
 
-        <div v-if="backendSelectMessage" :class="['status', backendSelectMessage.success ? 'success' : 'error']">
+        <div v-if="backendSelectMessage" class="status-banner" :class="backendSelectMessage.success ? 'success' : 'error'">
           {{ backendSelectMessage.message }}
         </div>
-      </div>
+      </section>
 
-      <!-- Portainer Configuration -->
-      <div class="settings-section">
-        <h2>Portainer Configuration</h2>
-        <div class="mode-indicator" :class="portainerMode">
-          Mode: <strong>{{ portainerMode.toUpperCase() }}</strong>
+      <!-- Backend Configuration (tabs) -->
+      <section class="panel settings-section reveal">
+        <div class="config-tabs" role="tablist" aria-label="Backend configuration">
+          <button
+            :class="['config-tab', { active: configTab === 'portainer' }]"
+            role="tab"
+            :aria-selected="configTab === 'portainer'"
+            @click="configTab = 'portainer'"
+          >
+            <span class="config-tab-dot portainer"></span>
+            Portainer
+            <span v-if="activeBackend === 'portainer'" class="config-tab-badge">active</span>
+          </button>
+          <button
+            :class="['config-tab', { active: configTab === 'arcane' }]"
+            role="tab"
+            :aria-selected="configTab === 'arcane'"
+            @click="configTab = 'arcane'"
+          >
+            <span class="config-tab-dot arcane"></span>
+            Arcane
+            <span v-if="activeBackend === 'arcane'" class="config-tab-badge">active</span>
+          </button>
         </div>
 
-        <div class="mode-toggle-section">
-          <label class="toggle-label">Force Mock Mode</label>
-          <div class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="forceMockMode"
-              @change="togglePortainerMode"
-              class="toggle-input"
-              id="force-mock"
-            >
-            <label for="force-mock" class="toggle-label-switch"></label>
-            <span class="toggle-text">{{ forceMockMode ? 'Enabled (Mock)' : 'Disabled (Real)' }}</span>
-          </div>
-          <small class="hint">Toggle to switch between Mock and Real Portainer. App restart required for full effect.</small>
-        </div>
+        <transition name="tab" mode="out-in">
+          <!-- Portainer tab -->
+          <div v-if="configTab === 'portainer'" class="config-panel" key="portainer">
+            <div class="config-head">
+              <h2>Portainer Configuration</h2>
+              <div class="mode-indicator" :class="portainerMode">
+                <span class="mode-dot"></span>
+                Mode: <strong>{{ portainerMode.toUpperCase() }}</strong>
+              </div>
+            </div>
 
-        <form @submit.prevent="savePortainerConfig" class="portainer-form">
-          <div class="form-group">
-            <label>Base URL</label>
-            <input v-model="portainerConfig.base_url" 
-                   type="url" 
-                   placeholder="http://portainer:9000"
-                   :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
-          </div>
+            <div class="mode-toggle-section">
+              <label class="toggle-label">Force Mock Mode</label>
+              <div class="toggle-switch">
+                <input
+                  type="checkbox"
+                  v-model="forceMockMode"
+                  @change="togglePortainerMode"
+                  class="toggle-input"
+                  id="force-mock"
+                >
+                <label for="force-mock" class="toggle-label-switch"></label>
+                <span class="toggle-text">{{ forceMockMode ? 'Enabled (Mock)' : 'Disabled (Real)' }}</span>
+              </div>
+              <small class="hint">Toggle to switch between Mock and Real Portainer. App restart required for full effect.</small>
+            </div>
 
-          <div class="form-group">
-            <label>API Key</label>
-            <input v-model="portainerConfig.api_key" 
-                   type="password" 
-                   placeholder="Your Portainer API key"
-                   :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
-          </div>
+            <form @submit.prevent="savePortainerConfig" class="portainer-form">
+              <div class="form-group">
+                <label>Base URL</label>
+                <input v-model="portainerConfig.base_url"
+                       type="url"
+                       placeholder="http://portainer:9000"
+                       class="input"
+                       :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
+              </div>
 
-          <div class="form-group">
-            <label>Endpoint ID</label>
-            <input v-model.number="portainerConfig.endpoint_id" 
-                   type="number" 
-                   min="1"
-                   :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
-          </div>
+              <div class="form-group">
+                <label>API Key</label>
+                <input v-model="portainerConfig.api_key"
+                       type="password"
+                       placeholder="Your Portainer API key"
+                       class="input"
+                       :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
+              </div>
 
-          <div v-if="!portainerConfigReadOnly" class="button-group">
-            <button type="submit" class="btn-save" :disabled="portainerMode === 'mock'">
-              Save Configuration
-            </button>
-            <button type="button" @click="testConnection" class="btn-test" :disabled="portainerMode === 'mock'">
-              Test Connection
-            </button>
-          </div>
-          <div v-else class="status info">
-            Configuration is managed via docker-compose.yml env vars. Update and restart to apply changes.
-          </div>
+              <div class="form-group">
+                <label>Endpoint ID</label>
+                <input v-model.number="portainerConfig.endpoint_id"
+                       type="number"
+                       min="1"
+                       class="input"
+                       :disabled="portainerMode === 'mock' || portainerConfigReadOnly">
+              </div>
 
-          <div v-if="testStatus" :class="['status', testStatus.success ? 'success' : 'error']">
-            {{ testStatus.message }}
-          </div>
-        </form>
+              <div v-if="!portainerConfigReadOnly" class="button-group">
+                <button type="submit" class="btn btn-primary" :disabled="portainerMode === 'mock'">
+                  Save Configuration
+                </button>
+                <button type="button" @click="testConnection" class="btn btn-ghost" :disabled="portainerMode === 'mock'">
+                  Test Connection
+                </button>
+              </div>
+              <div v-else class="status-banner info">
+                Configuration is managed via docker-compose.yml env vars. Update and restart to apply changes.
+              </div>
 
-        <div v-if="portainerMode === 'mock'" class="mock-notice">
-          Running in mock mode. Real Portainer is disabled. Switch to production for real deployments.
-        </div>
-      </div>
+              <div v-if="testStatus" class="status-banner" :class="testStatus.success ? 'success' : 'error'">
+                {{ testStatus.message }}
+              </div>
+            </form>
 
-      <!-- Arcane Configuration -->
-      <div class="settings-section">
-        <h2>Arcane Configuration</h2>
-        <div class="mode-indicator" :class="arcaneMode">
-          Mode: <strong>{{ arcaneMode.toUpperCase() }}</strong>
-        </div>
-
-        <div class="mode-toggle-section">
-          <label class="toggle-label">Force Mock Mode</label>
-          <div class="toggle-switch">
-            <input 
-              type="checkbox" 
-              v-model="arcaneForceMockMode"
-              @change="toggleArcaneMode"
-              class="toggle-input"
-              id="force-arcane-mock"
-            >
-            <label for="force-arcane-mock" class="toggle-label-switch"></label>
-            <span class="toggle-text">{{ arcaneForceMockMode ? 'Enabled (Mock)' : 'Disabled (Real)' }}</span>
-          </div>
-          <small class="hint">Toggle to switch between Mock and Real Arcane. App restart required for full effect.</small>
-        </div>
-
-        <form @submit.prevent="saveArcaneConfig" class="arcane-form">
-          <div class="form-group">
-            <label>Base URL</label>
-            <input v-model="arcaneConfig.base_url" 
-                   type="url" 
-                   placeholder="http://arcane:3552"
-                   :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
+            <div v-if="portainerMode === 'mock'" class="mock-notice">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8h.01M12 12v4" />
+              </svg>
+              Running in mock mode. Real Portainer is disabled. Switch to production for real deployments.
+            </div>
           </div>
 
-          <div class="form-group">
-            <label>API Key</label>
-            <input v-model="arcaneConfig.api_key" 
-                   type="password" 
-                   placeholder="Your Arcane API key"
-                   :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
-          </div>
+          <!-- Arcane tab -->
+          <div v-else class="config-panel" key="arcane">
+            <div class="config-head">
+              <h2>Arcane Configuration</h2>
+              <div class="mode-indicator" :class="arcaneMode">
+                <span class="mode-dot"></span>
+                Mode: <strong>{{ arcaneMode.toUpperCase() }}</strong>
+              </div>
+            </div>
 
-          <div class="form-group">
-            <label>Environment ID</label>
-            <input v-model.number="arcaneConfig.environment_id" 
-                   type="number" 
-                   min="0"
-                   :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
-          </div>
+            <div class="mode-toggle-section">
+              <label class="toggle-label">Force Mock Mode</label>
+              <div class="toggle-switch">
+                <input
+                  type="checkbox"
+                  v-model="arcaneForceMockMode"
+                  @change="toggleArcaneMode"
+                  class="toggle-input"
+                  id="force-arcane-mock"
+                >
+                <label for="force-arcane-mock" class="toggle-label-switch"></label>
+                <span class="toggle-text">{{ arcaneForceMockMode ? 'Enabled (Mock)' : 'Disabled (Real)' }}</span>
+              </div>
+              <small class="hint">Toggle to switch between Mock and Real Arcane. App restart required for full effect.</small>
+            </div>
 
-          <div class="status info">
-            Configuration is managed via docker-compose.yml env vars. Update ARCANE_BASE_URL/API_KEY and restart.
-          </div>
-        </form>
+            <form @submit.prevent="saveArcaneConfig" class="arcane-form">
+              <div class="form-group">
+                <label>Base URL</label>
+                <input v-model="arcaneConfig.base_url"
+                       type="url"
+                       placeholder="http://arcane:3552"
+                       class="input"
+                       :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
+              </div>
 
-        <div v-if="arcaneMode === 'mock'" class="mock-notice">
-          Running in mock mode. Real Arcane is disabled. Switch to production for real deployments.
-        </div>
-      </div>
+              <div class="form-group">
+                <label>API Key</label>
+                <input v-model="arcaneConfig.api_key"
+                       type="password"
+                       placeholder="Your Arcane API key"
+                       class="input"
+                       :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
+              </div>
+
+              <div class="form-group">
+                <label>Environment ID</label>
+                <input v-model.number="arcaneConfig.environment_id"
+                       type="number"
+                       min="0"
+                       class="input"
+                       :disabled="arcaneMode === 'mock' || arcaneConfigReadOnly">
+              </div>
+
+              <div class="status-banner info">
+                Configuration is managed via docker-compose.yml env vars. Update ARCANE_BASE_URL/API_KEY and restart.
+              </div>
+            </form>
+
+            <div v-if="arcaneMode === 'mock'" class="mock-notice">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8h.01M12 12v4" />
+              </svg>
+              Running in mock mode. Real Arcane is disabled. Switch to production for real deployments.
+            </div>
+          </div>
+        </transition>
+      </section>
 
       <!-- App Display Settings -->
-      <div class="settings-section">
+      <section class="panel settings-section reveal">
         <h2>App Display Settings</h2>
         <p class="text-muted">Customize how apps are displayed in the home page</p>
 
         <form @submit.prevent="saveDisplaySettings" class="display-form">
           <div class="form-group">
             <label>Apps per page</label>
-            <input 
-              v-model.number="displaySettings.appsPerPage" 
-              type="number" 
-              min="1" 
+            <input
+              v-model.number="displaySettings.appsPerPage"
+              type="number"
+              min="1"
               max="100"
               placeholder="10"
+              class="input"
             >
             <small class="hint">Number of apps to display per page (default: 10)</small>
           </div>
 
-          <button type="submit" class="btn-save">
-            Save Display Settings
-          </button>
+          <div class="button-group">
+            <button type="submit" class="btn btn-primary">
+              Save Display Settings
+            </button>
+          </div>
 
-          <div v-if="displaySaveStatus" :class="['status', displaySaveStatus.success ? 'success' : 'error']">
+          <div v-if="displaySaveStatus" class="status-banner" :class="displaySaveStatus.success ? 'success' : 'error'">
             {{ displaySaveStatus.message }}
           </div>
         </form>
-      </div>
+      </section>
 
-      <!-- Mock Stacks Viewer (only in mock mode for active backend) -->
-      <div v-if="backends.portainer?.mode === 'mock'" class="settings-section">
+      <!-- Mock Stacks Viewer -->
+      <section v-if="backends.portainer?.mode === 'mock'" class="panel settings-section reveal">
         <h2>Portainer Mock Stacks</h2>
         <p class="text-muted">Stacks deployed to mock Portainer (in-memory, not persisted)</p>
-        
+
         <div v-if="portainerMockStacks.length === 0" class="no-stacks">
           No stacks deployed yet. Deploy an app to see it here.
         </div>
@@ -229,14 +299,16 @@
             <div class="col-endpoint">{{ stack.endpoint_id }}</div>
             <div class="col-created">{{ formatDate(stack.created_at) }}</div>
           </div>
-          <button @click="resetPortainerMock" class="btn-clear-all">Clear All Portainer Stacks</button>
+          <button @click="resetPortainerMock" class="btn btn-soft-danger btn-sm btn-clear-all">
+            Clear All Portainer Stacks
+          </button>
         </div>
-      </div>
+      </section>
 
-      <div v-if="backends.arcane?.mode === 'mock'" class="settings-section">
+      <section v-if="backends.arcane?.mode === 'mock'" class="panel settings-section reveal">
         <h2>Arcane Mock Projects</h2>
         <p class="text-muted">Projects deployed to mock Arcane (in-memory, not persisted)</p>
-        
+
         <div v-if="arcaneMockProjects.length === 0" class="no-stacks">
           No projects deployed yet. Deploy an app to see it here.
         </div>
@@ -256,40 +328,44 @@
             <div class="col-id">{{ project.id }}</div>
             <div class="col-created">{{ formatDate(project.created_at) }}</div>
           </div>
-          <button @click="resetArcaneMock" class="btn-clear-all">Clear All Arcane Projects</button>
+          <button @click="resetArcaneMock" class="btn btn-soft-danger btn-sm btn-clear-all">
+            Clear All Arcane Projects
+          </button>
         </div>
-      </div>
+      </section>
 
-      <!-- Repository Management -->
-      <div class="settings-section">
-        <h2>CasaOS compatibile App Repositories</h2>
+      <!-- CasaOS Repositories -->
+      <section class="panel settings-section reveal">
+        <h2>CasaOS compatible App Repositories</h2>
         <p class="text-muted">Manage multiple CasaOS compatible app repositories</p>
 
         <form @submit.prevent="addRepository" class="add-repo-form">
           <div class="form-row">
             <div class="form-group">
               <label>CasaOS Repository Name</label>
-              <input v-model="newRepo.name" type="text" placeholder="e.g., My Apps" required>
+              <input v-model="newRepo.name" type="text" placeholder="e.g., My Apps" required class="input">
             </div>
             <div class="form-group">
               <label>Git URL</label>
-              <input v-model="newRepo.url" type="url" placeholder="https://github.com/..." required>
+              <input v-model="newRepo.url" type="url" placeholder="https://github.com/..." required class="input">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label>Branch</label>
-              <input v-model="newRepo.branch" type="text" placeholder="main" value="main">
+              <input v-model="newRepo.branch" type="text" placeholder="main" value="main" class="input">
             </div>
             <div class="form-group">
               <label>Priority</label>
-              <input v-model.number="newRepo.priority" type="number" placeholder="100" value="100">
+              <input v-model.number="newRepo.priority" type="number" placeholder="100" value="100" class="input">
             </div>
           </div>
-          <button type="submit" class="btn-add">Add CasaOS Repository</button>
+          <div class="button-group">
+            <button type="submit" class="btn btn-primary">Add CasaOS Repository</button>
+          </div>
         </form>
 
-        <div v-if="repositories.length === 0" class="no-repos">
+        <div v-if="repositories.length === 0" class="no-stacks no-repos">
           No CasaOS repositories configured.
         </div>
 
@@ -298,122 +374,100 @@
             <div class="repo-info">
               <div class="repo-name">
                 {{ repo.name }}
-                <span v-if="repoSyncingState[repo.id]" class="syncing-indicator">Syncing...</span>
+                <span v-if="repoSyncingState[repo.id]" class="syncing-indicator">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                    <path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6" />
+                  </svg>
+                  Syncing…
+                </span>
               </div>
-              <div class="repo-url">{{ repo.url }}</div>
+              <div class="repo-url mono">{{ repo.url }}</div>
               <div class="repo-meta">
-                <span>Branch: {{ repo.branch }}</span>
-                <span>Priority: {{ repo.priority }}</span>
-                <span v-if="repo.last_synced">Last sync: {{ formatDate(repo.last_synced) }}</span>
+                <span class="badge">branch: {{ repo.branch }}</span>
+                <span class="badge">priority: {{ repo.priority }}</span>
+                <span v-if="repo.last_synced" class="badge">last sync: {{ formatDate(repo.last_synced) }}</span>
+                <span v-else class="badge">never synced</span>
               </div>
             </div>
             <div class="repo-actions">
-              <button @click="toggleRepository(repo.id, !repo.enabled)" 
-                      :class="['btn-toggle', repo.enabled ? 'enabled' : 'disabled']"
+              <button @click="toggleRepository(repo.id, !repo.enabled)"
+                      :class="['btn', 'btn-sm', repo.enabled ? 'btn-primary' : 'btn-ghost']"
                       :disabled="repoSyncingState[repo.id]">
                 {{ repo.enabled ? 'Enabled' : 'Disabled' }}
               </button>
-              <button @click="syncRepository(repo.id)" 
-                      class="btn-sync"
+              <button @click="syncRepository(repo.id)"
+                      class="btn btn-accent btn-sm"
                       :disabled="!repo.enabled || repoSyncingState[repo.id]"
                       :title="repo.enabled ? 'Sync this repository' : 'Enable repository to sync'">
-                {{ repoSyncingState[repo.id] ? 'Syncing...' : 'Sync Now' }}
+                {{ repoSyncingState[repo.id] ? 'Syncing…' : 'Sync Now' }}
               </button>
-              <button @click="deleteRepository(repo.id)" 
-                      class="btn-delete"
+              <button @click="deleteRepository(repo.id)"
+                      class="btn btn-soft-danger btn-sm"
                       :disabled="repoSyncingState[repo.id]">
                 Delete
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="settings-section">
-        <h2>GitHub Repo Import</h2>
-        <p class="text-muted">Paste GitHub repository URLs to auto-generate app pages from docker-compose files or Dockerfiles.</p>
-
-        <form @submit.prevent="importGitHubRepositories" class="add-repo-form">
-          <div class="form-group">
-            <label>GitHub repository URLs</label>
-            <textarea
-              v-model="githubImportInput"
-              rows="6"
-              placeholder="https://github.com/example/project&#10;https://github.com/example/another-project"
-              required
-            ></textarea>
-            <small class="hint">One URL per line. Existing imports for the same repository are updated in place.</small>
-          </div>
-          <button type="submit" class="btn-add" :disabled="importingGithub">
-            {{ importingGithub ? 'Importing...' : 'Import GitHub Repositories' }}
-          </button>
-        </form>
-
-        <div v-if="githubImportStatus" :class="['status', githubImportStatus.success ? 'success' : 'error']" style="margin-top: 1rem;">
-          {{ githubImportStatus.message }}
-        </div>
-
-        <div v-if="githubImportResults.length" class="github-import-results">
-          <div v-for="result in githubImportResults" :key="`${result.repository}-${result.app_id || result.status}`" class="github-import-item">
-            <div>
-              <strong>{{ result.title || result.repository }}</strong>
-              <div class="repo-url">{{ result.repository }}</div>
-            </div>
-            <span :class="['status-pill', result.status]">{{ result.status }}</span>
-          </div>
-        </div>
-
-        <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border);">
+      <!-- GitHub Import -->
+      <section class="panel settings-section reveal">
+        <div class="sub-section">
           <h3 class="section-subtitle">Reset imported apps</h3>
           <p class="text-muted">Replace all imported GitHub apps with the bundled default set without contacting GitHub.</p>
-          <button type="button" class="btn-delete" :disabled="resettingGithub" @click="resetGitHubImports">
-            {{ resettingGithub ? 'Resetting...' : 'Full Reset to Default' }}
+          <button type="button" class="btn btn-soft-danger" :disabled="resettingGithub" @click="resetGitHubImports">
+            {{ resettingGithub ? 'Resetting…' : 'Full Reset to Default' }}
           </button>
-          <div v-if="githubResetStatus" :class="['status', githubResetStatus.success ? 'success' : 'error']" style="margin-top: 1rem;">
+          <div v-if="githubResetStatus" class="status-banner" :class="githubResetStatus.success ? 'success' : 'error'">
             {{ githubResetStatus.message }}
           </div>
         </div>
-
-        <div class="status info" style="margin-top: 1rem;">
-          Imported apps are managed on the dedicated <router-link to="/imports/github">GitHub Imports</router-link> page.
+        <br />
+        <div class="status-banner info">
+          Imported apps are managed on the dedicated
+          <router-link to="/imports/github">GitHub Imports</router-link>
+          page.
         </div>
-      </div>
+      </section>
 
       <!-- Cache Management -->
-      <div class="settings-section">
+      <section class="panel settings-section reveal">
         <h2>Cache Management</h2>
         <p class="text-muted">Manage the repository cache to fix syncing issues</p>
 
         <div class="cache-info">
           <div class="info-item">
-            <label>Cache Size:</label>
-            <span>{{ cacheStatus.cache_size }}</span>
+            <label>Cache Size</label>
+            <span class="mono">{{ cacheStatus.cache_size }}</span>
           </div>
           <div class="info-item">
-            <label>Apps Loaded:</label>
-            <span>{{ cacheStatus.apps_loaded }}</span>
+            <label>Apps Loaded</label>
+            <span class="mono">{{ cacheStatus.apps_loaded }}</span>
           </div>
           <div class="info-item">
-            <label>Last Sync:</label>
+            <label>Last Sync</label>
             <span>{{ cacheStatus.last_sync ? formatDate(cacheStatus.last_sync) : 'Never' }}</span>
           </div>
           <div class="info-item">
-            <label>Cache Path:</label>
-            <span class="monospace">{{ cacheStatus.cache_dir }}</span>
+            <label>Cache Path</label>
+            <span class="mono">{{ cacheStatus.cache_dir }}</span>
+          </div>
+          <div class="info-item">
+            <label>Initialized</label>
+            <span class="badge" :class="cacheStatus.initialized ? 'badge-success' : 'badge-error'">
+              {{ cacheStatus.initialized ? 'Yes' : 'No' }}
+            </span>
           </div>
         </div>
 
         <div class="cache-actions">
-          <button @click="clearCacheAndResync" class="btn-clear-cache" :disabled="clearingCache">
-            {{ clearingCache ? 'Clearing Cache...' : 'Clear Cache & Resync' }}
+          <button @click="clearCacheAndResync" class="btn btn-soft-danger" :disabled="clearingCache">
+            {{ clearingCache ? 'Clearing Cache…' : 'Clear Cache & Resync' }}
           </button>
           <small class="hint">This will delete all cached repositories and reload them from Git. May take a few moments.</small>
         </div>
-
-        <div v-if="cacheStatus" class="status info" style="margin-top: 10px; font-size: 0.9em;">
-          Cache initialized: {{ cacheStatus.initialized ? 'Yes' : 'No' }}
-        </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
@@ -431,7 +485,6 @@ export default {
         arcane: { mode: 'mock', configured: false, connected: false }
       },
       backendSelectMessage: null,
-      // Portainer
       portainerMode: 'mock',
       forceMockMode: false,
       portainerConfig: {
@@ -441,7 +494,6 @@ export default {
       },
       portainerConfigReadOnly: false,
       testStatus: null,
-      // Arcane
       arcaneMode: 'mock',
       arcaneForceMockMode: false,
       arcaneConfig: {
@@ -450,7 +502,6 @@ export default {
         environment_id: 0
       },
       arcaneConfigReadOnly: false,
-      // Repos
       repositories: [],
       githubImportInput: '',
       githubImportResults: [],
@@ -458,7 +509,6 @@ export default {
       importingGithub: false,
       resettingGithub: false,
       githubResetStatus: null,
-      // Mocks
       portainerMockStacks: [],
       arcaneMockProjects: [],
       newRepo: {
@@ -480,12 +530,20 @@ export default {
       displaySettings: {
         appsPerPage: 12
       },
-      displaySaveStatus: null
+      displaySaveStatus: null,
+      configTab: 'portainer'
     }
   },
   mounted() {
     this.loadSettings()
     this.loadDisplaySettings()
+  },
+  watch: {
+    activeBackend(val) {
+      if (val === 'portainer' || val === 'arcane') {
+        this.configTab = val
+      }
+    }
   },
   methods: {
     async loadSettings() {
@@ -513,7 +571,6 @@ export default {
         this.repositories = reposResponse.data.repositories || []
         this.cacheStatus = cacheStatusResponse.data
 
-        // Load Arcane config
         try {
           const arcaneModeResponse = await axios.get('/api/settings/arcane-mode')
           const arcaneConfigResponse = await axios.get('/api/settings/arcane')
@@ -875,43 +932,53 @@ export default {
 
 <style scoped>
 .settings-page {
-  padding: 1rem 0;
+  display: grid;
+  gap: 1.5rem;
 }
 
-.settings-page h1 {
-  font-size: 2rem;
-  margin-bottom: 2rem;
-  color: var(--color-text-primary);
+.page-head h1 {
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 750;
+  margin-bottom: 0.35rem;
+}
+
+.page-head .text-muted {
+  font-size: 0.95rem;
 }
 
 .settings-container {
   display: grid;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 .settings-section {
-  background: var(--color-bg-secondary);
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border);
+  padding: 1.6rem;
 }
 
 .settings-section h2 {
-  font-size: 1.5rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 2px solid var(--color-primary);
-  padding-bottom: 0.5rem;
-  color: var(--color-text-primary);
+  font-size: 1.2rem;
+  margin-bottom: 0.35rem;
+}
+
+.settings-section > .text-muted {
+  margin-bottom: 1.4rem;
 }
 
 .section-subtitle {
-  margin: 0 0 0.5rem;
-  font-size: 1.1rem;
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
   color: var(--color-text-primary);
 }
 
-/* Backend Selector */
+.sub-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border-light);
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Backend selector */
 .backend-selector {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -920,145 +987,295 @@ export default {
 }
 
 .backend-option {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1.5rem;
-  border: 2px solid var(--color-border);
-  border-radius: 8px;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-  background: var(--color-bg-primary);
+  transition: all var(--transition-base);
+  background: var(--color-glass);
 }
 
 .backend-option:hover {
   border-color: var(--color-primary);
-  background: var(--color-bg-secondary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .backend-option.active {
   border-color: var(--color-primary);
-  background: rgba(102, 126, 234, 0.1);
+  background: linear-gradient(135deg, rgba(109, 124, 255, 0.14), rgba(34, 211, 238, 0.08));
+  box-shadow: var(--glow-primary);
 }
 
 .backend-indicator {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  display: inline-block;
+  flex-shrink: 0;
 }
 
 .backend-indicator.real {
   background: var(--color-success);
+  box-shadow: 0 0 12px var(--color-success);
 }
 
 .backend-indicator.mock {
   background: var(--color-warning);
+  box-shadow: 0 0 12px var(--color-warning);
 }
 
 .backend-info {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
 .backend-info strong {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: var(--color-text-primary);
 }
 
 .backend-status {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--color-text-secondary);
 }
 
-.status-connected {
-  font-size: 0.8rem;
-  color: var(--color-success);
+.status-connected,
+.status-disconnected {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
-.status-disconnected {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
+.status-connected { color: var(--color-success); }
+.status-disconnected { color: var(--color-text-muted); }
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .active-badge {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: var(--color-primary);
-  color: white;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
+  top: 0.65rem;
+  right: 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #fff;
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
-.mode-indicator {
+.pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* Config tabs */
+.config-tabs {
+  display: inline-flex;
+  padding: 0.25rem;
+  gap: 0.2rem;
+  border-radius: var(--radius-pill);
   background: var(--color-bg-tertiary);
-  padding: 0.75rem;
-  border-radius: 4px;
+  border: 1px solid var(--color-border);
   margin-bottom: 1.5rem;
-  font-weight: 500;
+}
+
+.config-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.config-tab:hover {
   color: var(--color-text-primary);
-  border-left: 4px solid var(--color-warning);
+}
+
+.config-tab.active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #fff;
+  box-shadow: var(--glow-primary);
+}
+
+.config-tab-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.config-tab-dot.portainer {
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent);
+}
+
+.config-tab-dot.arcane {
+  background: var(--color-primary-light);
+  box-shadow: 0 0 8px var(--color-primary-light);
+}
+
+.config-tab-badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.config-head h2 {
+  margin: 0;
+}
+
+.config-head .mode-indicator {
+  margin-bottom: 0;
+}
+
+.config-panel {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* Tab transition */
+.tab-enter-active,
+.tab-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.tab-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.tab-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Mode indicator */
+.mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1.1rem;
+  border: 1px solid;
+}
+
+.mode-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .mode-indicator.mock {
-  background: rgba(255, 193, 7, 0.15);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
   color: var(--color-warning);
-  border-left-color: var(--color-warning);
 }
 
 .mode-indicator.real {
-  background: rgba(72, 187, 120, 0.15);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
   color: var(--color-success);
-  border-left-color: var(--color-success);
 }
 
 .mode-toggle-section {
+  display: grid;
+  gap: 0.4rem;
   background: var(--color-bg-tertiary);
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1.5rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  margin-bottom: 1.25rem;
+}
+
+.toggle-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--color-text-primary);
 }
 
 .toggle-switch {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-top: 0.5rem;
+  gap: 0.85rem;
 }
 
 .toggle-input {
   appearance: none;
   width: 50px;
   height: 28px;
-  background: var(--color-border);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-strong);
   border-radius: 14px;
   cursor: pointer;
   transition: background 0.3s ease;
   position: relative;
+  flex-shrink: 0;
 }
 
 .toggle-input:checked {
-  background: var(--color-error);
+  background: var(--color-warning);
 }
 
 .toggle-input::before {
   content: '';
   position: absolute;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: white;
+  background: #fff;
   top: 2px;
   left: 2px;
   transition: left 0.3s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .toggle-input:checked::before {
@@ -1071,14 +1288,17 @@ export default {
 
 .toggle-text {
   color: var(--color-text-secondary);
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 0.88rem;
 }
 
+/* Forms */
 .portainer-form,
 .arcane-form,
-.add-repo-form {
+.add-repo-form,
+.display-form {
   display: grid;
-  gap: 1.5rem;
+  gap: 1.1rem;
 }
 
 .form-row {
@@ -1087,299 +1307,166 @@ export default {
   gap: 1rem;
 }
 
-@media (max-width: 768px) {
-  .form-row { grid-template-columns: 1fr; }
-  .backend-selector { grid-template-columns: 1fr; }
-}
-
 .form-group {
   display: flex;
   flex-direction: column;
 }
 
 .form-group label {
-  font-weight: 500;
-  margin-bottom: 0.5rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin-bottom: 0.4rem;
   color: var(--color-text-primary);
 }
 
-.form-group input,
-.form-group textarea {
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  font-size: 1rem;
-  background-color: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  transition: all 0.3s ease;
-}
-
-.form-group input:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-.form-group input:disabled,
-.form-group textarea:disabled {
-  background: var(--color-bg-tertiary);
+.form-group .hint {
+  margin-top: 0.35rem;
   color: var(--color-text-muted);
-  opacity: 0.6;
+  font-size: 0.8rem;
 }
 
 .button-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.btn-save,
-.btn-test,
-.btn-add,
-.btn-toggle,
-.btn-sync,
-.btn-delete,
-.btn-clear {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-  font-size: 1rem;
-}
-
-.btn-save,
-.btn-add {
-  background: var(--color-primary);
-  color: white;
-}
-
-.btn-save:hover,
-.btn-add:hover {
-  background: var(--color-primary-dark);
-}
-
-.btn-save:disabled,
-.btn-test:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-test {
-  background: var(--color-info);
-  color: white;
-}
-
-.btn-test:hover { background: #3b7cc7; }
-
-.btn-toggle {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  font-size: 0.9rem;
-  border: 1px solid var(--color-border);
-}
-
-.btn-toggle.enabled {
-  background: var(--color-success);
-  color: white;
-  border-color: var(--color-success);
-}
-
-.btn-toggle:hover { opacity: 0.9; }
-
-.btn-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-sync {
-  background: var(--color-warning);
-  color: #333;
-  font-size: 0.9rem;
-}
-
-.btn-sync:hover { background: #e0a800; }
-
-.btn-sync:disabled {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.btn-delete,
-.btn-clear {
-  background: var(--color-error);
-  color: white;
-  font-size: 0.9rem;
-}
-
-.btn-delete:hover { background: #e01c1c; }
-
-.btn-delete:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
-
-.status {
-  padding: 1rem;
-  border-radius: 4px;
-  border-left: 4px solid;
-}
-
-.status.success {
-  background: rgba(72, 187, 120, 0.15);
-  border-color: var(--color-success);
-  color: var(--color-success);
-}
-
-.status.error {
-  background: rgba(245, 101, 101, 0.15);
-  border-color: var(--color-error);
-  color: var(--color-error);
-}
-
-.status.info {
-  background: rgba(66, 153, 225, 0.15);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  display: flex;
+  gap: 0.85rem;
+  flex-wrap: wrap;
 }
 
 .mock-notice {
-  background: rgba(255, 193, 7, 0.15);
-  border: 1px solid var(--color-warning);
-  border-radius: 4px;
-  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
   color: var(--color-warning);
-  margin-top: 1.5rem;
-  text-align: center;
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
-.text-muted {
-  color: var(--color-text-secondary);
-  font-size: 0.95rem;
-  margin-bottom: 1.5rem;
-}
-
-.no-stacks,
-.no-repos {
-  background: var(--color-bg-tertiary);
+.no-stacks {
+  background: var(--color-glass);
   padding: 2rem;
   text-align: center;
   color: var(--color-text-muted);
-  border-radius: 4px;
-  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border-strong);
 }
 
-.github-import-results {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.github-import-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
-}
-
-.status-pill {
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  text-transform: capitalize;
-  background: var(--color-bg-tertiary);
-}
-
-.status-pill.imported {
-  background: rgba(72, 187, 120, 0.15);
-  color: var(--color-success);
-}
-
-.status-pill.skipped {
-  background: rgba(245, 101, 101, 0.15);
-  color: var(--color-error);
-}
-
+/* Tables */
 .stacks-list {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-glass);
+}
+
+.stacks-header {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: 2fr 1fr 1fr 2fr;
+  background: var(--color-bg-tertiary);
+  padding: 0.85rem 1rem;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
 }
 
 .stack-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 2fr;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--color-border-light);
   align-items: center;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
 }
 
-.stack-name {
-  font-weight: 500;
-  flex: 1;
+.stack-item:last-child { border-bottom: none; }
+.stack-item:hover { background: var(--color-bg-tertiary); }
+
+.col-name { font-weight: 600; color: var(--color-text-primary); }
+.col-status,
+.col-endpoint,
+.col-id,
+.col-created { color: var(--color-text-secondary); font-size: 0.9rem; }
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.7rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.stack-status {
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  margin: 0 1rem;
-}
-
-.stack-status.running {
-  background: rgba(72, 187, 120, 0.2);
+.status-badge.running {
+  background: rgba(16, 185, 129, 0.14);
   color: var(--color-success);
 }
 
+.status-badge.pending,
+.status-badge.error {
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--color-error);
+}
+
+.btn-clear-all {
+  width: 100%;
+  border-radius: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Repos */
 .repos-list {
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .repo-item {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 2rem;
-  padding: 1.5rem;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.25rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-glass);
+  transition: border-color var(--transition-base);
 }
 
-@media (max-width: 768px) {
-  .repo-item { grid-template-columns: 1fr; }
+.repo-item:hover {
+  border-color: var(--color-border-strong);
 }
 
 .repo-info {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.55rem;
+  min-width: 0;
 }
 
 .repo-name {
-  font-weight: 600;
-  font-size: 1.1rem;
+  font-weight: 700;
+  font-size: 1.05rem;
   color: var(--color-text-primary);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.7rem;
 }
 
 .syncing-indicator {
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
   color: var(--color-warning);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.syncing-indicator svg {
   animation: spin 1s linear infinite;
 }
 
@@ -1390,163 +1477,116 @@ export default {
 
 .repo-url {
   color: var(--color-text-secondary);
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   word-break: break-all;
 }
 
 .repo-meta {
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
 }
-
-.warning-text {
-  color: #b45309;
-  font-weight: 600;
-}
-
 
 .repo-actions {
-  display: grid;
-  grid-template-columns: auto auto auto;
+  display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.stacks-list {
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--color-bg-secondary);
-}
-
-.stacks-header {
+/* GitHub import results */
+.github-import-results {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 2fr;
-  gap: 0;
-  background: var(--color-bg-tertiary);
-  padding: 1rem;
-  font-weight: 600;
-  border-bottom: 2px solid var(--color-border);
-  font-size: 0.95rem;
-  color: var(--color-text-primary);
+  gap: 0.6rem;
+  margin-top: 1rem;
 }
 
-.stack-item {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 2fr;
-  gap: 0;
-  padding: 1rem;
-  border-bottom: 1px solid var(--color-border);
+.github-import-item {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-}
-
-.stack-item:last-child { border-bottom: none; }
-.stack-item:hover { background: var(--color-bg-primary); }
-
-.col-name { font-weight: 500; color: var(--color-text-primary); }
-.col-status,
-.col-endpoint,
-.col-id,
-.col-created { color: var(--color-text-secondary); font-size: 0.95rem; }
-
-.status-badge {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.status-badge.running {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-}
-
-.status-badge.pending,
-.status-badge.error {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.btn-clear-all {
-  width: 100%;
-  padding: 0.75rem;
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
+  gap: 1rem;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--color-border);
-  border-top: 2px solid var(--color-border);
-  border-radius: 0;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.2s ease;
+  border-radius: var(--radius-md);
+  background: var(--color-glass);
 }
 
-.btn-clear-all:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+.github-import-item strong {
+  color: var(--color-text-primary);
 }
 
+/* Cache */
 .cache-info {
-  background: var(--color-bg-tertiary);
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
+  background: var(--color-glass);
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
+  margin-bottom: 1.1rem;
 }
 
-.cache-info .info-item {
+.info-item {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
-.cache-info label {
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
+.info-item label {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.cache-info .monospace {
-  font-family: 'Monaco', 'Courier New', monospace;
-  font-size: 0.8rem;
+.info-item span {
   color: var(--color-text-primary);
+  font-size: 0.92rem;
+}
+
+.info-item .mono {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
   word-break: break-all;
 }
 
 .cache-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.btn-clear-cache {
-  padding: 0.75rem 1.5rem;
-  background: var(--color-error);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 1rem;
-  transition: background 0.2s ease;
+.cache-actions .hint {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
 }
 
-.btn-clear-cache:hover:not(:disabled) { background: #dc2626; }
-.btn-clear-cache:disabled { opacity: 0.6; cursor: not-allowed; }
-
+/* ---------- Responsive ---------- */
 @media (max-width: 768px) {
-  .stacks-header { display: none; }
-  .stack-item { grid-template-columns: 1fr; gap: 0.5rem; }
-  .col-name::before { content: 'Stack: '; font-weight: 600; color: var(--color-text-primary); }
-  .col-status::before { content: 'Status: '; font-weight: 600; color: var(--color-text-primary); }
-  .col-endpoint::before { content: 'Endpoint: '; font-weight: 600; color: var(--color-text-primary); }
-  .col-created::before { content: 'Created: '; font-weight: 600; color: var(--color-text-primary); }
-  .repo-actions { grid-template-columns: 1fr; }
+  .backend-selector,
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .repo-item {
+    grid-template-columns: 1fr;
+  }
+
+  .stacks-header {
+    display: none;
+  }
+
+  .stack-item {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .col-name::before { content: 'Stack: '; font-weight: 700; color: var(--color-text-primary); }
+  .col-status::before { content: 'Status: '; font-weight: 700; color: var(--color-text-primary); }
+  .col-endpoint::before { content: 'Endpoint: '; font-weight: 700; color: var(--color-text-primary); }
+  .col-created::before { content: 'Created: '; font-weight: 700; color: var(--color-text-primary); }
 }
 </style>

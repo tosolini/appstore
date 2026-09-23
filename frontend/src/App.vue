@@ -17,6 +17,10 @@
 
         <nav class="header-nav">
           <router-link to="/" class="nav-link">Browse</router-link>
+          <router-link to="/new" class="nav-link nav-link-new">
+            New
+            <span v-if="newCount > 0" class="new-count">{{ newCount }}</span>
+          </router-link>
           <router-link to="/imports/github" class="nav-link">Imports</router-link>
           <router-link to="/settings" class="nav-link">Settings</router-link>
           <button
@@ -56,7 +60,8 @@
 
 <script setup>
 import { useTheme } from './composables/useTheme'
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import axios from 'axios'
 import packageJson from '../package.json'
 
 const { currentTheme, toggleTheme } = useTheme()
@@ -64,6 +69,25 @@ const { currentTheme, toggleTheme } = useTheme()
 const isDark = computed(() => currentTheme.value === 'dark')
 const themeIcon = computed(() => isDark.value ? '☀️' : '🌙')
 const appVersion = packageJson.version
+const newCount = ref(0)
+
+onMounted(async () => {
+  // Record the catalog baseline for this frontend version (idempotent),
+  // then refresh the "new apps" badge count.
+  try {
+    await axios.post('/api/imports/github/snapshot', {
+      frontend_version: packageJson.version
+    })
+  } catch (e) {
+    console.error('Error recording catalog snapshot:', e)
+  }
+  try {
+    const response = await axios.get('/api/imports/github/new-ids')
+    newCount.value = (response.data.ids || []).length
+  } catch (e) {
+    console.error('Error loading new apps count:', e)
+  }
+})
 </script>
 
 <style scoped>
@@ -159,6 +183,19 @@ const appVersion = packageJson.version
   color: var(--color-text-primary);
   background: linear-gradient(135deg, rgba(109, 124, 255, 0.16), rgba(34, 211, 238, 0.12));
   box-shadow: inset 0 0 0 1px rgba(109, 124, 255, 0.28);
+}
+
+.nav-link-new {
+  gap: 0.4rem;
+}
+
+.new-count {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
 }
 
 /* Theme toggle */

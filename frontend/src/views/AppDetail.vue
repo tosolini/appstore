@@ -216,6 +216,27 @@
                   </span>
                 </dd>
               </div>
+              <div class="info-item" v-if="isGitHubImport">
+                <dt>Resync</dt>
+                <dd>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm resync-btn"
+                    :disabled="resyncing"
+                    @click="resyncApp"
+                    :title="resyncStatus?.message || 'Re-import this repository from GitHub'"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: resyncing }">
+                      <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+                      <path d="M21 3v6h-6" />
+                    </svg>
+                    {{ resyncing ? 'Resyncing…' : 'Resync' }}
+                  </button>
+                  <p v-if="resyncStatus" :class="['resync-msg', resyncStatus.success ? 'success' : 'error']">
+                    {{ resyncStatus.message }}
+                  </p>
+                </dd>
+              </div>
               <div class="info-item" v-if="app.unsupported_services && app.unsupported_services.length">
                 <dt>Unsupported</dt>
                 <dd class="mono">{{ app.unsupported_services.join(', ') }}</dd>
@@ -247,16 +268,29 @@ export default {
       lightboxOpen: false,
       currentImageIndex: 0,
       activeBackend: 'Portainer',
-      isFavorite: false
+      isFavorite: false,
+      resyncing: false,
+      resyncStatus: null
     }
   },
   mounted() {
     this.loadAppDetail()
     this.loadBackendStatus()
   },
+  watch: {
+    '$route.params.id'(newId, oldId) {
+      if (newId && newId !== oldId) {
+        this.resyncStatus = null
+        this.loadAppDetail()
+      }
+    }
+  },
   computed: {
     activeBackendLabel() {
       return this.activeBackend.charAt(0).toUpperCase() + this.activeBackend.slice(1)
+    },
+    isGitHubImport() {
+      return this.app?.repository_source === 'GitHub Imports'
     },
     cleanedCompose() {
       if (!this.app || !this.app.compose_content) return ''
@@ -335,6 +369,31 @@ export default {
         this.isFavorite = !this.isFavorite
       } catch (error) {
         console.error('Error toggling favorite:', error)
+      }
+    },
+    async resyncApp() {
+      if (!this.app || this.resyncing) return
+      this.resyncing = true
+      this.resyncStatus = null
+      try {
+        const response = await axios.post(`/api/imports/github/by-app/${this.app.app_id}/resync`)
+        this.resyncStatus = { success: true, message: response.data.message || 'Re-imported successfully' }
+        // Reload detail (compose content / metadata may have changed).
+        // The app_id can change after a re-import (owner/repo rename).
+        const newAppId = response.data.app_id
+        if (newAppId && newAppId !== this.app.app_id) {
+          this.$router.replace(`/app/${newAppId}`)
+        } else {
+          await this.loadAppDetail()
+        }
+      } catch (error) {
+        console.error('Error resyncing app:', error)
+        this.resyncStatus = {
+          success: false,
+          message: error.response?.data?.detail || 'Resync failed'
+        }
+      } finally {
+        this.resyncing = false
       }
     },
     onDeploySuccess(result) {
@@ -938,6 +997,33 @@ export default {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
   border-color: transparent;
   box-shadow: var(--glow-primary);
+}
+
+.resync-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.resync-msg {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.resync-msg.success {
+  color: var(--color-success);
+}
+
+.resync-msg.error {
+  color: var(--color-error);
 }
 
 /* ---------- Responsive ---------- */

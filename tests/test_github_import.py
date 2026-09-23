@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.datastructures import UploadFile
 
-from src.db.models import Base, GitHubImportedApp
+from src.db.models import Base, BackupState, CatalogSnapshot, GitHubImportedApp
 from src.github_import import GitHubAppImporter, GitHubImportError, serialize_imported_app
 from src.git_sync import GitSync
 from src.models import App
@@ -113,6 +113,35 @@ def test_select_compose_path_falls_back_to_dockerfile_for_docker_only_repos():
     assert path is None
     dockerfile_path = GitHubAppImporter._select_dockerfile_path(["docker/Dockerfile"])
     assert dockerfile_path == "docker/Dockerfile"
+
+
+def test_select_dockerfile_path_accepts_variants_like_node_red_docker():
+    files = [
+        ".docker/Dockerfile.alpine",
+        ".docker/Dockerfile.debian",
+        ".docker/docker.sh",
+        "docker-custom/Dockerfile.custom",
+        "docker-custom/Dockerfile.debian",
+        "README.md",
+    ]
+    assert GitHubAppImporter._select_compose_path(files) is None
+    assert GitHubAppImporter._select_dockerfile_path(files) == ".docker/Dockerfile.alpine"
+
+
+def test_docker_dir_fallback_finds_generic_compose_and_dockerfile():
+    compose_path, dockerfile_path = GitHubAppImporter._select_docker_dir_fallback(
+        ["README.md", "docker/app.yaml", "src/main.py"]
+    )
+    assert compose_path == "docker/app.yaml"
+    assert dockerfile_path is None
+
+    compose_path, dockerfile_path = GitHubAppImporter._select_docker_dir_fallback(
+        ["README.md", "docker/my-dockerfile-prod", "src/main.py"]
+    )
+    assert compose_path is None
+    assert dockerfile_path == "docker/my-dockerfile-prod"
+
+    assert GitHubAppImporter._select_docker_dir_fallback(["README.md", "src/main.py"]) == (None, None)
 
 
 def test_normalize_asset_url_handles_relative_and_blob_urls():
@@ -397,4 +426,162 @@ def test_restore_updates_existing_record_by_canonical_url(tmp_path, monkeypatch)
     assert restored.source_url == "https://github.com/unslothai/unsloth"
     app = App.model_validate(json.loads(restored.payload_json))
     assert app.title == "new-title"
+    session.close()
+
+
+def _make_import_session(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'snap.db'}")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine)()
+    return session
+
+
+def _add_import_record(session, app_id, enabled=True):
+    session.add(
+        GitHubImportedApp(
+            source_url=f"https://github.com/example/{app_id}",
+            repo_full_name=f"example/{app_id}",
+            app_id=app_id,
+            payload_json=serialize_imported_app(_make_test_app(app_id=app_id, title=app_id)),
+            enabled=enabled,
+        )
+    )
+    session.commit()
+
+
+def test_new_import_ids_diffs_live_catalog_vs_previous_snapshot(tmp_path):
+    import src.main as main
+
+    session = _make_import_session(tmp_path)
+    _add_import_record(session, "github-example-old")
+    _add_import_record(session, "github-example-new")
+
+    session.add(
+        CatalogSnapshot(
+            frontend_version="1.1.1",
+            app_ids_json=json.dumps(["github-example-old"]),
+        )
+    )
+    session.add(
+        CatalogSnapshot(
+            frontend_version="1.1.2",
+            app_ids_json=json.dumps(["github-example-old"]),
+        )
+    )
+    session.commit()
+
+    new_ids, current, previous = main._new_import_app_ids(session)
+    assert current == "1.1.2"
+    assert previous == "1.1.1"
+    assert new_ids == ["github-example-new"]
+    session.close()
+
+
+def test_new_import_ids_empty_without_previous_snapshot(tmp_path):
+    import src.main as main
+
+    session = _make_import_session(tmp_path)
+    _add_import_record(session, "github-example-only")
+
+    # No snapshots at all (fresh install): nothing is reported as new.
+    assert main._new_import_app_ids(session)[0] == []
+
+    # Single snapshot (first version ever seen): still no baseline to diff.
+    session.add(
+        CatalogSnapshot(
+            frontend_version="1.1.2",
+            app_ids_json=json.dumps(["github-example-only"]),
+        )
+    )
+    session.commit()
+    assert main._new_import_app_ids(session)[0] == []
+    session.close()
+
+
+def test_reset_realigns_snapshots_so_no_spurious_new(tmp_path, monkeypatch):
+    import src.main as main
+
+    session = _make_import_session(tmp_path)
+    _add_import_record(session, "github-example-old")
+    session.add(
+        CatalogSnapshot(
+            frontend_version="1.1.1",
+            app_ids_json=json.dumps(["github-example-old"]),
+        )
+    )
+    session.commit()
+
+    monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
+
+    result = asyncio.run(main.reset_github_imports(db=session))
+    assert result["status"] == "success"
+
+    snapshots = session.query(CatalogSnapshot).all()
+    assert [snap.frontend_version for snap in snapshots] == ["reset-baseline"]
+
+    new_ids, _, _ = main._new_import_app_ids(session)
+    assert new_ids == []
+    session.close()
+
+
+def _backup_payload(app_ids, generated_at):
+    return {
+        "format": "container-appstore-imports-v1",
+        "generated_at": generated_at,
+        "count": len(app_ids),
+        "imports": [
+            {
+                "source_url": f"https://github.com/example/{app_id}",
+                "repo_full_name": f"example/{app_id}",
+                "app_id": app_id,
+                "enabled": True,
+                "last_imported_at": "2026-09-19T12:00:00",
+                "app": _make_test_app(app_id=app_id, title=app_id).model_dump(),
+            }
+            for app_id in app_ids
+        ],
+    }
+
+
+def test_bundled_backup_seeds_merges_and_skips_when_current(tmp_path, monkeypatch):
+    import src.db as db_module
+    import src.main as main
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'seed.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    monkeypatch.setattr(db_module, "get_db_sync", lambda: Session())
+    monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
+
+    # Fresh install: full seed + state recorded.
+    monkeypatch.setattr(
+        main, "_load_default_backup",
+        lambda: _backup_payload(["github-example-a"], "2026-01-01T00:00:00"),
+    )
+    main.sync_seed_imports("test")
+    session = Session()
+    assert session.query(GitHubImportedApp).count() == 1
+    state = session.query(BackupState).filter(BackupState.id == 1).first()
+    assert state is not None and state.generated_at == "2026-01-01T00:00:00"
+    session.close()
+
+    # Same backup again: no-op, no duplicates.
+    main.sync_seed_imports("test")
+    session = Session()
+    assert session.query(GitHubImportedApp).count() == 1
+    session.close()
+
+    # New backup (redeploy): merge adds only the delta, keeps existing.
+    monkeypatch.setattr(
+        main, "_load_default_backup",
+        lambda: _backup_payload(
+            ["github-example-a", "github-example-b"], "2026-02-01T00:00:00"
+        ),
+    )
+    main.sync_seed_imports("test")
+    session = Session()
+    assert session.query(GitHubImportedApp).count() == 2
+    state = session.query(BackupState).filter(BackupState.id == 1).first()
+    assert state.generated_at == "2026-02-01T00:00:00"
+    assert set(main.git_sync.imported_apps) == {"github-example-a", "github-example-b"}
     session.close()

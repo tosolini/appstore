@@ -149,3 +149,39 @@ class GitHubImportedApp(Base):
 
     def __repr__(self):
         return f"<GitHubImportedApp(repo_full_name={self.repo_full_name}, app_id={self.app_id})>"
+
+
+class CatalogSnapshot(Base):
+    """Per-frontend-version snapshot of the GitHub-import catalog.
+
+    Used to compute the "new apps" delta: apps present in the snapshot of
+    version N but absent from the snapshot of version N-1 are new in N.
+    """
+    __tablename__ = "catalog_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    frontend_version = Column(String(50), unique=True, index=True, nullable=False)
+    backup_generated_at = Column(String(100), nullable=True)
+    app_ids_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<CatalogSnapshot(frontend_version={self.frontend_version})>"
+
+
+class BackupState(Base):
+    """Tracks which bundled backup was already applied to the catalog.
+
+    Single-row table (``id=1``). Lets startup detect a new bundled
+    ``github-imports-backup.json`` (e.g. after a redeploy) and merge it
+    instead of ignoring it.
+    """
+    __tablename__ = "backup_state"
+
+    id = Column(Integer, primary_key=True)
+    generated_at = Column(String(100), nullable=True)
+    app_count = Column(Integer, default=0)
+    applied_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<BackupState(generated_at={self.generated_at}, app_count={self.app_count})>"

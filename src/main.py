@@ -27,6 +27,8 @@ from src.db.models import (
     ArcaneConfig,
     FavoriteApp,
     GitHubImportedApp,
+    CatalogSnapshot,
+    BackupState,
 )
 from src.github_import import (
     GitHubAppImporter,
@@ -37,7 +39,7 @@ from src.github_import import (
 )
 from src.parsers.compose_schema import ComposeSchema
 from src.security import get_encryption_manager
-from src.models import GitHubImportRequest
+from src.models import GitHubImportRequest, FrontendSnapshotRequest
 
 
 # Load environment
@@ -51,7 +53,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.1.0"
+    version="1.1.2"
 )
 
 # CORS
@@ -224,11 +226,15 @@ def _load_default_backup() -> Optional[dict]:
 
 
 def sync_seed_imports(reason: str = "startup"):
-    """Populate a fresh install with the bundled default imports.
+    """Seed fresh installs and merge newer bundled backups on redeploy.
 
-    Restores the full ``github-imports-backup.json`` snapshot (compose content,
-    images, metadata included) so no GitHub calls are made. Only acts when there
-    are no GitHub imports yet; existing imports are left untouched.
+    - Empty catalog: restores the full ``github-imports-backup.json`` snapshot
+      (compose content, images, metadata included) so no GitHub calls are made.
+    - Existing catalog: compares the bundled backup's ``generated_at`` with the
+      last applied one (``BackupState``). On mismatch the backup is applied in
+      *merge* mode — new apps are added, matching ones updated, nothing is ever
+      deleted (manual imports are safe). This is what updates the app list when
+      a redeploy ships a new backup file.
     """
     global git_sync
     if not git_sync:
@@ -238,13 +244,6 @@ def sync_seed_imports(reason: str = "startup"):
 
     db = get_db_sync()
     try:
-        count = db.query(GitHubImportedApp).count()
-        if count > 0:
-            logger.info(
-                f"Default import seed ({reason}): skipped, {count} imports already present"
-            )
-            return
-
         data = _load_default_backup()
         if not data:
             return
@@ -252,14 +251,41 @@ def sync_seed_imports(reason: str = "startup"):
         if not isinstance(entries, list) or not entries:
             logger.info(f"Default import seed ({reason}): backup is empty, skipping")
             return
+        backup_generated_at = data.get("generated_at")
+
+        import_count = db.query(GitHubImportedApp).count()
+        state = db.query(BackupState).filter(BackupState.id == 1).first()
+
+        if import_count == 0:
+            action = "seed"
+        elif state is None:
+            # Upgrade path: catalog predates backup-state tracking.
+            action = "catch-up merge"
+        elif state.generated_at != backup_generated_at:
+            action = "merge"
+        else:
+            logger.info(
+                f"Bundled backup ({reason}): already applied "
+                f"(generated_at={backup_generated_at}), skipping"
+            )
+            return
 
         restored, updated, skipped, imported_apps = _apply_import_backup_entries(
             db, entries, replace_existing=False
         )
+        if state is None:
+            state = BackupState(id=1)
+            db.add(state)
+        state.generated_at = backup_generated_at
+        state.app_count = len(entries)
+        state.applied_at = datetime.utcnow()
         db.commit()
-        git_sync.set_imported_apps(imported_apps)
+
+        existing_apps = git_sync.imported_apps.copy()
+        existing_apps.update(imported_apps)
+        git_sync.set_imported_apps(existing_apps)
         logger.info(
-            f"Default import seed ({reason}) complete: "
+            f"Bundled backup {action} ({reason}) complete: "
             f"restored={restored} updated={updated} skipped={skipped}"
         )
     finally:
@@ -411,7 +437,7 @@ async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.1.0...")
+    logger.info("Starting AppStore Bridge API v1.1.2...")
     
     # Initialize database
     init_db()
@@ -588,7 +614,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.1.0",
+        "version": "1.1.2",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,
@@ -1333,6 +1359,7 @@ async def reset_github_imports(db: Session = Depends(get_db)) -> dict:
 
     db.commit()
     git_sync.set_imported_apps(imported_apps)
+    _realign_snapshots_after_reset(db)
 
     return {
         "status": "success",
@@ -1355,6 +1382,31 @@ async def resync_github_import(import_id: int, db: Session = Depends(get_db)) ->
     record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Imported app not found")
+
+    return _do_resync_github_import(record, db)
+
+
+@app.post("/api/imports/github/by-app/{app_id}/resync")
+async def resync_github_import_by_app(app_id: str, db: Session = Depends(get_db)) -> dict:
+    """Re-import a persisted GitHub repository looked up by app_id.
+
+    Used by the app detail page, which only knows the app_id.
+    """
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.app_id == app_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    return _do_resync_github_import(record, db)
+
+
+def _do_resync_github_import(record: GitHubImportedApp, db: Session) -> dict:
+    """Shared resync core: re-import from the record's source URL."""
+    global git_sync
 
     importer = GitHubAppImporter()
     try:
@@ -1399,6 +1451,180 @@ async def delete_github_import(import_id: int, db: Session = Depends(get_db)) ->
         git_sync.set_imported_apps(imported_apps)
 
     return {"status": "success", "message": f"Deleted import for {record.repo_full_name}"}
+
+
+def _live_import_app_ids(db: Session) -> List[str]:
+    """App IDs of the currently enabled GitHub imports (the live catalog)."""
+    records = load_persisted_imported_apps(db)
+    return [record.app_id for record in records]
+
+
+def _snapshots_newest_first(db: Session) -> List[CatalogSnapshot]:
+    """All catalog snapshots, newest first."""
+    return (
+        db.query(CatalogSnapshot)
+        .order_by(CatalogSnapshot.created_at.desc(), CatalogSnapshot.id.desc())
+        .all()
+    )
+
+
+def _snapshot_app_ids(snapshot: CatalogSnapshot) -> List[str]:
+    try:
+        data = json.loads(snapshot.app_ids_json or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [app_id for app_id in data if isinstance(app_id, str)]
+
+
+def _new_import_app_ids(db: Session) -> Tuple[List[str], Optional[str], Optional[str]]:
+    """Diff the live catalog against the previous version snapshot.
+
+    Returns ``(new_app_ids, current_version, previous_version)``. The current
+    version is the newest snapshot; the previous one is the newest snapshot
+    with a different version. With fewer than two snapshots there is no
+    baseline to diff against, so the result is empty (fresh installs don't
+    mark the whole seeded catalog as new).
+    """
+    snapshots = _snapshots_newest_first(db)
+    if len(snapshots) < 2:
+        current = snapshots[0].frontend_version if snapshots else None
+        return [], current, None
+
+    current_snapshot = snapshots[0]
+    previous_snapshot = next(
+        (snap for snap in snapshots[1:] if snap.frontend_version != current_snapshot.frontend_version),
+        None,
+    )
+    if not previous_snapshot:
+        return [], current_snapshot.frontend_version, None
+
+    previous_ids = set(_snapshot_app_ids(previous_snapshot))
+    new_ids = [app_id for app_id in _live_import_app_ids(db) if app_id not in previous_ids]
+    return new_ids, current_snapshot.frontend_version, previous_snapshot.frontend_version
+
+
+@app.post("/api/imports/github/snapshot")
+async def record_catalog_snapshot(
+    request: FrontendSnapshotRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Record the GitHub-import catalog baseline for a frontend version.
+
+    Idempotent: creates the snapshot on the first call for a given version
+    and leaves it untouched afterwards, so the "new since previous version"
+    delta stays stable for the whole lifetime of that version. Call this
+    once at frontend boot with the version from ``package.json``.
+    """
+    version = (request.frontend_version or "").strip()
+    if not version or len(version) > 50:
+        raise HTTPException(status_code=400, detail="A valid frontend_version is required")
+
+    existing = (
+        db.query(CatalogSnapshot)
+        .filter(CatalogSnapshot.frontend_version == version)
+        .first()
+    )
+    if existing:
+        return {
+            "status": "success",
+            "frontend_version": version,
+            "created": False,
+            "app_count": len(_snapshot_app_ids(existing)),
+            "message": f"Snapshot for v{version} already exists",
+        }
+
+    backup_generated_at = None
+    backup = _load_default_backup()
+    if backup:
+        backup_generated_at = backup.get("generated_at")
+
+    live_ids = _live_import_app_ids(db)
+    if db.query(CatalogSnapshot).count() == 0:
+        # Cold start (upgrade from a version without snapshotting): record the
+        # current catalog as the "previous version" baseline too, so the whole
+        # existing catalog is not reported as new.
+        db.add(
+            CatalogSnapshot(
+                frontend_version=f"pre-{version}",
+                backup_generated_at=backup_generated_at,
+                app_ids_json=json.dumps(live_ids),
+            )
+        )
+
+    snapshot = CatalogSnapshot(
+        frontend_version=version,
+        backup_generated_at=backup_generated_at,
+        app_ids_json=json.dumps(live_ids),
+    )
+    db.add(snapshot)
+    db.commit()
+
+    logger.info(f"Catalog snapshot recorded for frontend v{version}")
+
+    return {
+        "status": "success",
+        "frontend_version": version,
+        "created": True,
+        "app_count": len(_snapshot_app_ids(snapshot)),
+        "message": f"Snapshot recorded for v{version}",
+    }
+
+
+@app.get("/api/imports/github/new")
+async def list_new_github_imports(db: Session = Depends(get_db)) -> dict:
+    """List GitHub-imported apps that are new since the previous version."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    new_ids, current_version, previous_version = _new_import_app_ids(db)
+    wanted = set(new_ids)
+    apps = [
+        _app_summary(app)
+        for app_id, app in git_sync.get_all_apps().items()
+        if app_id in wanted
+    ]
+    # Keep a stable order (by title) since the diff itself is unordered.
+    apps.sort(key=lambda item: (item.get("title") or "").lower())
+
+    return {
+        "current_version": current_version,
+        "previous_version": previous_version,
+        "total": len(apps),
+        "apps": apps,
+    }
+
+
+@app.get("/api/imports/github/new-ids")
+async def list_new_github_import_ids(db: Session = Depends(get_db)) -> dict:
+    """Lightweight set of app IDs considered new (for NEW badges)."""
+    new_ids, current_version, previous_version = _new_import_app_ids(db)
+    return {
+        "current_version": current_version,
+        "previous_version": previous_version,
+        "ids": new_ids,
+    }
+
+
+def _realign_snapshots_after_reset(db: Session) -> None:
+    """Collapse snapshots into a single post-reset baseline.
+
+    A full reset replaces the whole catalog with the bundled backup, which is
+    not "new" content — without realignment the next version diff would flag
+    unrelated apps as NEW. A single ``reset-baseline`` snapshot makes both
+    ``/new`` and ``/new-ids`` report empty until genuinely new imports arrive.
+    """
+    db.query(CatalogSnapshot).delete()
+    db.add(
+        CatalogSnapshot(
+            frontend_version="reset-baseline",
+            backup_generated_at=None,
+            app_ids_json=json.dumps(_live_import_app_ids(db)),
+        )
+    )
+    db.commit()
+    logger.info("Catalog snapshots realigned after reset (reset-baseline)")
 
 
 @app.post("/apps/{app_id}/deploy")

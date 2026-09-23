@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.1.1** — A Docker app store with dual-backend support, resilient GitHub app importing, full backup/restore, a dedicated imports management page, and a premium dark-first UI.
+**v1.1.2** — A Docker app store with dual-backend support, resilient GitHub app importing, full backup/restore, a dedicated imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 
@@ -12,10 +12,13 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 - Import standalone GitHub repositories and auto-generate app pages from `docker-compose.yml` or `Dockerfile`
 - Smart duplicate detection: URLs are canonicalized so `owner/repo`, `owner/repo.git/`, trailing slashes and case variants all resolve to the same import
 - Dedicated GitHub Imports page with **search and pagination** for long catalogs, plus resync/delete/export workflows
+- **New apps page** (`/new`) — shows apps added since the previous version, with a **NEW** badge on browse cards and a nav counter
 - **Full backup export** — complete app snapshot (compose content, images, metadata) as a single JSON file
 - **One-click restore** from a backup without contacting GitHub (no rate-limit issues)
 - **Full Reset to Default** button in Settings — restores the bundled default catalog
 - Fresh installs are **auto-populated from the bundled backup** (no GitHub calls on first boot)
+- **Redeploys auto-merge newer bundled backups** — when a new image ships a new `github-imports-backup.json`, the catalog updates on boot (new apps added, existing updated, manual imports never deleted)
+- Per-app **Resync button** on GitHub-imported app detail pages (re-imports the repository from GitHub)
 - Import error details modal showing exactly why a repository was skipped
 - Import debug badges showing GitHub API, git fallback, or Dockerfile fallback strategy
 - Architecture compatibility detection and warnings for container images that do not support the current host
@@ -139,23 +142,26 @@ The app can import any public GitHub repository that ships a `docker-compose.yml
 > **Tip:** set `GITHUB_TOKEN` in `.env` to avoid GitHub API rate-limit `403`s during imports. Without a token the importer falls back to shallow `git clone` / HTML metadata, which still works but is slower and less reliable for large catalogs.
 
 - **Import** — paste one URL per line (Settings or the GitHub Imports page), or upload an exported list. URLs are canonicalized, so importing the same repo twice — even with a `.git` suffix or different case — updates the existing entry instead of duplicating it.
+- **Resync** — every GitHub-imported app has a Resync button on its detail page (after the Import row) to re-import the repository on demand.
 - **Search & paginate** — the GitHub Imports page filters live by name/repo/URL and paginates long catalogs (20 per page).
 - **Backup** — *Export Full Backup* downloads `github-imports-backup.json`, a complete snapshot with compose content, images and metadata. Restoring it requires **no GitHub access**, so catalogs with 100+ apps restore instantly without hitting API rate limits.
 - **Reset** — *Full Reset to Default* in Settings wipes current imports and restores the bundled default set.
+- **Auto-update on redeploy** — when a new image ships a newer bundled backup, startup merges it automatically (adds new apps, updates existing ones, never deletes manual imports or flags everything as NEW).
 
 The importer:
 
 - falls back to a shallow `git clone` when GitHub API metadata or tree listing is rate-limited
-- accepts non-standard compose filenames such as `docker-compose.dev.yaml` and similar Docker YAML variants
+- accepts non-standard compose filenames such as `docker-compose.dev.yaml` and similar Docker YAML variants, plus any `*.yml`/`*.yaml` inside a `docker/` directory
+- accepts `Dockerfile` variants (`Dockerfile.alpine`, `Dockerfile.custom`, `*.dockerfile`, …) anywhere in the repo, with an explicit fallback search inside the repo's `docker/` folder
 - inspects container image manifests when possible so imported apps can warn when the current host architecture is not published by one or more referenced images
-- records import debug metadata so you can tell whether an app came from the GitHub API, git fallback, or Dockerfile fallback path
+- records import debug metadata so you can tell whether an app came from the GitHub API, git fallback, docker-dir fallback, or Dockerfile fallback path
 
 ## Architecture
 
 ```
 frontend/          ← Vue 3 SPA (Vite)
-  ├── src/views/   ← Pages (Home, AppDetail, Settings, GitHubImports)
-  ├── src/components/ ← Reusable components (DeployForm)
+  ├── src/views/   ← Pages (Home, NewApps, AppDetail, Settings, GitHubImports)
+  ├── src/components/ ← Reusable components (DeployForm, AppCard)
   ├── src/directives/ ← Global directives (e.g. broken-image fallback)
   ├── src/styles/   ← Design system (theme.css, CSS variables, light/dark)
   └── public/       ← PWA icons (favicon, apple-touch-icon, webmanifest)
@@ -184,6 +190,10 @@ docs/              ← User documentation + screenshots
 - `POST /api/imports/github/restore` — Restore a full backup (multipart file upload, no GitHub calls)
 - `POST /api/imports/github/reset` — Reset imports to the bundled default set
 - `POST /api/imports/github/{id}/resync` — Refresh one imported GitHub app
+- `POST /api/imports/github/by-app/{app_id}/resync` — Refresh one imported GitHub app by app_id (used by the detail page)
+- `POST /api/imports/github/snapshot` — Record the catalog baseline for a frontend version
+- `GET /api/imports/github/new` — Apps added since the previous version
+- `GET /api/imports/github/new-ids` — IDs of new apps (for NEW badges)
 - `DELETE /api/imports/github/{id}` — Delete one imported GitHub app
 - `GET /api/settings/backend` — Backend status
 - `POST /api/settings/backend/select` — Switch backend

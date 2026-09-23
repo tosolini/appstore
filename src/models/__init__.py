@@ -112,6 +112,11 @@ class GitHubImportRequest(BaseModel):
     repositories: List[str]
 
 
+class FrontendSnapshotRequest(BaseModel):
+    """Record the current frontend version catalog baseline"""
+    frontend_version: str
+
+
 class GitHubImportResult(BaseModel):
     """Per-repository import result"""
     repository: str

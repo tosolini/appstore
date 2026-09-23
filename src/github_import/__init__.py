@@ -76,6 +76,12 @@ class GitHubAppImporter:
             dockerfile_path = self._select_dockerfile_path(file_paths) if not compose_path else None
             readme_path = self._select_readme_path(file_paths)
 
+            docker_dir_fallback = False
+            if not compose_path and not dockerfile_path:
+                # Explicit fallback: look inside the repo's docker/ folder.
+                compose_path, dockerfile_path = self._select_docker_dir_fallback(file_paths)
+                docker_dir_fallback = bool(compose_path or dockerfile_path)
+
             if not compose_path and not dockerfile_path:
                 raise GitHubImportError("No docker-compose file or Dockerfile found")
 
@@ -134,9 +140,11 @@ class GitHubAppImporter:
                 "file_read_source": file_read_source,
                 "compose_path": compose_path,
                 "dockerfile_path": dockerfile_path,
+                "docker_dir_fallback": docker_dir_fallback,
                 "import_strategy": (
-                    "dockerfile-fallback" if dockerfile_path and not compose_path
-                    else ("git-fallback" if file_listing_source == "git-fallback" else "github-api")
+                    "docker-dir-fallback" if docker_dir_fallback
+                    else ("dockerfile-fallback" if dockerfile_path and not compose_path
+                    else ("git-fallback" if file_listing_source == "git-fallback" else "github-api"))
                 ),
             }
             self._populate_architecture_metadata(app)
@@ -332,8 +340,12 @@ class GitHubAppImporter:
     def _list_repository_files(checkout_dir) -> List[str]:
         files = []
         for entry in checkout_dir.rglob("*"):
-            if entry.is_file():
-                files.append(entry.relative_to(checkout_dir).as_posix())
+            if not entry.is_file():
+                continue
+            relative = entry.relative_to(checkout_dir).as_posix()
+            if relative == ".git" or relative.startswith(".git/"):
+                continue
+            files.append(relative)
         return files
 
     def _fetch_raw_file(self, owner: str, repo: str, branch: str, path: str) -> str:
@@ -365,7 +377,7 @@ class GitHubAppImporter:
         if not candidates:
             return None
 
-        def score(path: str) -> Tuple[int, int, str]:
+        def score(path: str) -> Tuple[int, int, int, str]:
             lowered = path.lower()
             penalty = 0
             noisy_segments = ("test", "tests", "dev", "docs", "example", "examples", ".github")
@@ -379,11 +391,24 @@ class GitHubAppImporter:
                 name_penalty = 10
             elif basename.endswith((".yml", ".yaml")) and "docker" in basename:
                 name_penalty = 20
+            elif GitHubAppImporter._is_in_docker_dir(path):
+                name_penalty = 25
             else:
                 name_penalty = 30
             return (penalty, name_penalty, path.count("/"), lowered)
 
         return sorted(candidates, key=score)[0]
+
+    @staticmethod
+    def _is_in_docker_dir(path: str) -> bool:
+        """True if the file lives inside a dedicated docker folder.
+
+        Covers ``docker/``, ``.docker/``, ``docker-custom/``, etc. so repos
+        like ``node-red/node-red-docker`` (Dockerfiles under ``.docker/`` and
+        ``docker-custom/``) are detected even with non-standard file names.
+        """
+        docker_dirs = {"docker", ".docker", "docker-custom", "dockerfiles", "containers", "compose"}
+        return any(segment in docker_dirs for segment in path.lower().split("/")[:-1])
 
     @staticmethod
     def _is_compose_candidate(path: str) -> bool:
@@ -399,6 +424,79 @@ class GitHubAppImporter:
         tokens = {token for token in re.split(r"[._\-\s]+", stem) if token}
         if "compose" in tokens or "stack" in tokens:
             return True
+        # Generic *.yml/*.yaml inside a dedicated docker folder (e.g.
+        # ``docker/app.yml``) is treated as a compose candidate with lower
+        # priority than standard names.
+        if GitHubAppImporter._is_in_docker_dir(path):
+            return True
+        return False
+
+    @staticmethod
+    def _docker_dir_paths(file_paths: List[str]) -> List[str]:
+        """Files living inside a folder literally named ``docker/``.
+
+        Matches the segment case-insensitively at any depth (``docker/...``,
+        ``some/nested/docker/...``) so repos that keep their containers under
+        a dedicated ``docker`` directory are covered.
+        """
+        return [
+            path
+            for path in file_paths
+            if "docker" in [segment.lower() for segment in path.split("/")[:-1]]
+        ]
+
+    @staticmethod
+    def _select_docker_dir_fallback(file_paths: List[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Explicit fallback: search inside the repo's ``docker/`` folder.
+
+        Used when the standard selectors find nothing. Inside ``docker/`` the
+        naming net is wider on purpose:
+        - compose: any ``*.yml``/``*.yaml`` (excluding ``.github``)
+        - dockerfile: any file whose name contains ``dockerfile`` or
+          ``containerfile`` (case-insensitive)
+        """
+        docker_files = GitHubAppImporter._docker_dir_paths(file_paths)
+        if not docker_files:
+            return None, None
+
+        compose_candidates = [
+            path
+            for path in docker_files
+            if path.split("/")[-1].lower().endswith((".yml", ".yaml"))
+            and ".github" not in [segment.lower() for segment in path.split("/")]
+        ]
+        compose_path = GitHubAppImporter._select_compose_path(compose_candidates) if compose_candidates else None
+
+        dockerfile_candidates = [
+            path
+            for path in docker_files
+            if "dockerfile" in path.split("/")[-1].lower()
+            or "containerfile" in path.split("/")[-1].lower()
+        ]
+        dockerfile_path = None
+        if not compose_path and dockerfile_candidates:
+            dockerfile_path = GitHubAppImporter._select_dockerfile_path(dockerfile_candidates)
+            if dockerfile_path is None:
+                # Widest net: basename contains dockerfile/containerfile but
+                # with unusual separators — pick the shallowest one.
+                dockerfile_path = sorted(dockerfile_candidates, key=lambda p: (p.count("/"), p.lower()))[0]
+
+        return compose_path, dockerfile_path
+
+    @staticmethod
+    def _is_dockerfile_candidate(path: str) -> bool:
+        basename_lower = path.split("/")[-1].lower()
+        if basename_lower in {"dockerfile", "containerfile"}:
+            return True
+        for base in ("dockerfile", "containerfile"):
+            if basename_lower.startswith((f"{base}.", f"{base}-", f"{base}_")):
+                return True
+            if basename_lower.endswith((f".{base}", f"-{base}", f"_{base}")):
+                return True
+        # Any file with "dockerfile" in the name inside a dedicated docker
+        # folder (e.g. ``docker/Dockerfile.prod`` already covered above, but
+        # also ``docker/build`` variants) — keep it conservative: the name
+        # must still mention dockerfile/containerfile.
         return False
 
     @staticmethod
@@ -406,19 +504,26 @@ class GitHubAppImporter:
         candidates = [
             path
             for path in file_paths
-            if path.split("/")[-1] in {"Dockerfile", "Containerfile"}
+            if GitHubAppImporter._is_dockerfile_candidate(path)
         ]
         if not candidates:
             return None
 
-        def score(path: str) -> Tuple[int, int, str]:
+        def score(path: str) -> Tuple[int, int, int, int, str]:
             lowered = path.lower()
             penalty = 0
             noisy_segments = ("test", "tests", "dev", "docs", "example", "examples", ".github")
             if any(segment in lowered.split("/") for segment in noisy_segments):
                 penalty += 10
-            containerfile_penalty = 1 if path.endswith("Containerfile") else 0
-            return (penalty, containerfile_penalty, path.count("/"), lowered)
+            basename_lower = path.split("/")[-1].lower()
+            if basename_lower in {"dockerfile", "containerfile"}:
+                name_penalty = 0
+            elif basename_lower.startswith(("dockerfile", "containerfile")):
+                name_penalty = 1
+            else:
+                name_penalty = 2
+            containerfile_penalty = 1 if "containerfile" in basename_lower else 0
+            return (penalty, name_penalty, containerfile_penalty, path.count("/"), lowered)
 
         return sorted(candidates, key=score)[0]
 

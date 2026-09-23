@@ -5,6 +5,7 @@ import Home from './views/Home.vue'
 import AppDetail from './views/AppDetail.vue'
 import Settings from './views/Settings.vue'
 import GitHubImports from './views/GitHubImports.vue'
+import NewApps from './views/NewApps.vue'
 import imageFallback from './directives/imageFallback'
 import './styles/theme.css'
 
@@ -13,6 +14,11 @@ const routes = [
         path: '/',
         name: 'Home',
         component: Home
+    },
+    {
+        path: '/new',
+        name: 'NewApps',
+        component: NewApps
     },
     {
         path: '/app/:id',

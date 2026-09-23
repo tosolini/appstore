@@ -498,7 +498,7 @@ def test_new_import_ids_empty_without_previous_snapshot(tmp_path):
     session.close()
 
 
-def test_reset_realigns_snapshots_so_no_spurious_new(tmp_path, monkeypatch):
+def test_reset_realigns_snapshots_so_no_spurious_new(tmp_path):
     import src.main as main
 
     session = _make_import_session(tmp_path)
@@ -511,13 +511,14 @@ def test_reset_realigns_snapshots_so_no_spurious_new(tmp_path, monkeypatch):
     )
     session.commit()
 
-    monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
-
-    result = asyncio.run(main.reset_github_imports(db=session))
-    assert result["status"] == "success"
+    # Call the realignment helper directly: going through the reset endpoint
+    # would load and apply the full multi-hundred-app bundled backup, which is
+    # irrelevant to the behavior asserted here.
+    main._realign_snapshots_after_reset(session)
 
     snapshots = session.query(CatalogSnapshot).all()
     assert [snap.frontend_version for snap in snapshots] == ["reset-baseline"]
+    assert json.loads(snapshots[0].app_ids_json) == ["github-example-old"]
 
     new_ids, _, _ = main._new_import_app_ids(session)
     assert new_ids == []

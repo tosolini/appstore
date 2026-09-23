@@ -134,6 +134,14 @@ class GitHubAppImporter:
             app.source_url = repository_url
             app.homepage = repo_meta.get("homepage") or None
             app.source_type = "dockerfile" if dockerfile_path and not compose_path else "compose"
+            if docker_dir_fallback:
+                import_strategy = "docker-dir-fallback"
+            elif dockerfile_path and not compose_path:
+                import_strategy = "dockerfile-fallback"
+            elif file_listing_source == "git-fallback":
+                import_strategy = "git-fallback"
+            else:
+                import_strategy = "github-api"
             app.import_debug = {
                 "metadata_source": metadata_source,
                 "file_listing_source": file_listing_source,
@@ -141,11 +149,7 @@ class GitHubAppImporter:
                 "compose_path": compose_path,
                 "dockerfile_path": dockerfile_path,
                 "docker_dir_fallback": docker_dir_fallback,
-                "import_strategy": (
-                    "docker-dir-fallback" if docker_dir_fallback
-                    else ("dockerfile-fallback" if dockerfile_path and not compose_path
-                    else ("git-fallback" if file_listing_source == "git-fallback" else "github-api"))
-                ),
+                "import_strategy": import_strategy,
             }
             self._populate_architecture_metadata(app)
 

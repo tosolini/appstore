@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 import json
 from typing import Optional, List, Tuple, Dict
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.models import App, DeployRequest, RepositoryCreate, PortainerConfigRequest, ArcaneConfigRequest
@@ -1542,10 +1543,12 @@ async def record_catalog_snapshot(
     if db.query(CatalogSnapshot).count() == 0:
         # Cold start (upgrade from a version without snapshotting): record the
         # current catalog as the "previous version" baseline too, so the whole
-        # existing catalog is not reported as new.
+        # existing catalog is not reported as new. Truncated to the column size
+        # since "pre-" prefix adds 4 chars to an already-validated version.
+        baseline_version = f"pre-{version}"[:50]
         db.add(
             CatalogSnapshot(
-                frontend_version=f"pre-{version}",
+                frontend_version=baseline_version,
                 backup_generated_at=backup_generated_at,
                 app_ids_json=json.dumps(live_ids),
             )
@@ -1557,7 +1560,28 @@ async def record_catalog_snapshot(
         app_ids_json=json.dumps(live_ids),
     )
     db.add(snapshot)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Concurrent boot (e.g. multiple tabs): another request won the race
+        # on the unique version column. Fall back to the existing snapshot
+        # instead of 500ing.
+        db.rollback()
+        existing = (
+            db.query(CatalogSnapshot)
+            .filter(CatalogSnapshot.frontend_version == version)
+            .first()
+        )
+        if existing is None:
+            raise
+        logger.info(f"Catalog snapshot for frontend v{version} already recorded (race)")
+        return {
+            "status": "success",
+            "frontend_version": version,
+            "created": False,
+            "app_count": len(_snapshot_app_ids(existing)),
+            "message": f"Snapshot for v{version} already exists",
+        }
 
     logger.info(f"Catalog snapshot recorded for frontend v{version}")
 

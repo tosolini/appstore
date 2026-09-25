@@ -17,7 +17,7 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 - **One-click restore** from a backup without contacting GitHub (no rate-limit issues)
 - **Full Reset to Default** button in Settings — restores the bundled default catalog
 - Fresh installs are **auto-populated from the bundled backup** (no GitHub calls on first boot)
-- **Redeploys auto-merge newer bundled backups** — when a new image ships a new `github-imports-backup.json`, the catalog updates on boot (new apps added, existing updated, manual imports never deleted)
+- **Redeploys auto-merge newer bundled backups** — when a new image ships a new `github-imports-backup.tar.gz`, the catalog updates on boot (new apps added, existing updated, manual imports never deleted)
 - Per-app **Resync button** on GitHub-imported app detail pages (re-imports the repository from GitHub)
 - Import error details modal showing exactly why a repository was skipped
 - Import debug badges showing GitHub API, git fallback, or Dockerfile fallback strategy
@@ -144,7 +144,7 @@ The app can import any public GitHub repository that ships a `docker-compose.yml
 - **Import** — paste one URL per line (Settings or the GitHub Imports page), or upload an exported list. URLs are canonicalized, so importing the same repo twice — even with a `.git` suffix or different case — updates the existing entry instead of duplicating it.
 - **Resync** — every GitHub-imported app has a Resync button on its detail page (after the Import row) to re-import the repository on demand.
 - **Search & paginate** — the GitHub Imports page filters live by name/repo/URL and paginates long catalogs (20 per page).
-- **Backup** — *Export Full Backup* downloads `github-imports-backup.json`, a complete snapshot with compose content, images and metadata. Restoring it requires **no GitHub access**, so catalogs with 100+ apps restore instantly without hitting API rate limits.
+- **Backup** — *Export Full Backup* downloads `github-imports-backup.tar.gz`, a compressed snapshot with compose content, images and metadata. Restoring it requires **no GitHub access**, so catalogs with 100+ apps restore instantly without hitting API rate limits. Legacy `.json` backups are still accepted on restore.
 - **Reset** — *Full Reset to Default* in Settings wipes current imports and restores the bundled default set.
 - **Auto-update on redeploy** — when a new image ships a newer bundled backup, startup merges it automatically (adds new apps, updates existing ones, never deletes manual imports or flags everything as NEW).
 

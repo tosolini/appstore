@@ -151,24 +151,32 @@
         </div>
 
         <aside class="detail-side">
-          <section class="panel deploy-panel reveal">
-            <div class="deploy-head">
-              <h2 class="panel-title">Deploy</h2>
-              <span class="badge badge-primary backend-badge">{{ activeBackendLabel }}</span>
+          <section class="panel side-tabs-panel reveal">
+            <div class="side-tab-header" role="tablist" aria-label="Deploy and Information">
+              <button
+                type="button"
+                role="tab"
+                class="side-tab"
+                :class="{ active: activeSideTab === 'info' }"
+                :aria-selected="activeSideTab === 'info'"
+                @click="activeSideTab = 'info'"
+              >
+                Information
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="side-tab"
+                :class="{ active: activeSideTab === 'deploy' }"
+                :aria-selected="activeSideTab === 'deploy'"
+                @click="activeSideTab = 'deploy'"
+              >
+                Deploy
+              </button>
             </div>
-            <p class="text-muted panel-sub">Configure and deploy this stack to your {{ activeBackendLabel }} endpoint.</p>
-            <DeployForm
-              :app-id="app.app_id"
-              :schema="parameters"
-              :volumes="volumes"
-              @deploy-success="onDeploySuccess"
-              @deploy-error="onDeployError"
-            />
-          </section>
 
-          <section class="panel info-panel reveal">
-            <h2 class="panel-title">Information</h2>
-            <dl class="info-list">
+            <div v-show="activeSideTab === 'info'" role="tabpanel">
+              <dl class="info-list">
               <div class="info-item">
                 <dt>App ID</dt>
                 <dd class="mono">{{ app.app_id }}</dd>
@@ -241,7 +249,22 @@
                 <dt>Unsupported</dt>
                 <dd class="mono">{{ app.unsupported_services.join(', ') }}</dd>
               </div>
-            </dl>
+              </dl>
+            </div>
+
+            <div v-show="activeSideTab === 'deploy'" role="tabpanel">
+              <div class="deploy-head">
+                <p class="text-muted panel-sub deploy-sub">Configure and deploy this stack to your {{ activeBackendLabel }} endpoint.</p>
+                <span class="badge badge-primary backend-badge">{{ activeBackendLabel }}</span>
+              </div>
+              <DeployForm
+                :app-id="app.app_id"
+                :schema="parameters"
+                :volumes="volumes"
+                @deploy-success="onDeploySuccess"
+                @deploy-error="onDeployError"
+              />
+            </div>
           </section>
         </aside>
       </div>
@@ -268,6 +291,7 @@ export default {
       lightboxOpen: false,
       currentImageIndex: 0,
       activeBackend: 'Portainer',
+      activeSideTab: 'info',
       isFavorite: false,
       resyncing: false,
       resyncStatus: null
@@ -922,17 +946,61 @@ export default {
   word-break: break-word;
 }
 
+/* Side tabs (Information / Deploy) */
+.side-tabs-panel {
+  padding-top: 1rem;
+}
+
+.side-tab-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  margin-bottom: 1.1rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-light);
+}
+
+.side-tab {
+  padding: 0.55rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.side-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.side-tab.active {
+  color: var(--color-text-primary);
+  background: var(--color-glass);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
 /* Deploy */
 .deploy-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.75rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.deploy-sub {
+  margin: 0;
 }
 
 .backend-badge {
   letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 /* Information */

@@ -9,10 +9,10 @@ services:
     ports:
       - "8888:8888"
     environment:
-      HOST: 0.0.0.0
-      PORT: 8888
-      CACHE_DIR: /app/cache
-      GIT_SYNC_INTERVAL: 604800 # 7 days in seconds
+      HOST: "${HOST:-0.0.0.0}"
+      PORT: "${PORT:-8888}"
+      CACHE_DIR: "${CACHE_DIR:-/app/cache}"
+      GIT_SYNC_INTERVAL: "${GIT_SYNC_INTERVAL:-604800}"
       REPOSITORIES: |
         [
           {
@@ -20,7 +20,7 @@ services:
             "url": "https://github.com/IceWhaleTech/CasaOS-AppStore.git",
             "branch": "main",
             "priority": 100,
-            "enabled": true
+            "enabled": false
           },
           {
             "name": "LinuxServer",
@@ -45,7 +45,7 @@ services:
           }
         ]
       # Fresh installs are auto-populated from the bundled
-      # github-imports-backup.json (no GitHub calls). Use "Full Reset to Default"
+      # github-imports-backup.tar.gz (no GitHub calls). Use "Full Reset to Default"
       # in Settings to restore that default set at any time.
 
       # Active backend selection: "portainer", "arcane", or "auto" (default)

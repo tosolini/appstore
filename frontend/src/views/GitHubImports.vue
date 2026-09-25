@@ -22,7 +22,7 @@
         <input
           ref="restoreFile"
           type="file"
-          accept=".json,application/json"
+          accept=".tar.gz,.tgz,.json,application/gzip,application/json"
           class="file-input"
           @change="handleRestoreFile"
         />
@@ -415,7 +415,9 @@ export default {
           responseType: 'blob'
         })
         const blob = new Blob([response.data], {
-          type: format === 'json' || format === 'full' ? 'application/json' : 'text/plain'
+          type: format === 'full' ? 'application/gzip'
+            : format === 'json' ? 'application/json'
+            : 'text/plain'
         })
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -423,7 +425,7 @@ export default {
         link.download = format === 'json'
           ? 'github-imports.json'
           : format === 'full'
-            ? 'github-imports-backup.json'
+            ? 'github-imports-backup.tar.gz'
             : 'github-imports.txt'
         document.body.appendChild(link)
         link.click()

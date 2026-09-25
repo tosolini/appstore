@@ -44,8 +44,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Copy app code
 COPY src/ src/
 
-# Bundled default GitHub imports backup (used for fresh-install seed + full reset)
-COPY github-imports-backup.json ./github-imports-backup.json
+# Bundled default GitHub imports backup (used for fresh-install seed + full reset).
+# Compressed tar.gz (the backend still accepts a legacy .json if provided).
+COPY github-imports-backup.tar.gz ./github-imports-backup.tar.gz
 
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /frontend/dist /app/public

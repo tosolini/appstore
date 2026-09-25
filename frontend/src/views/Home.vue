@@ -4,11 +4,11 @@
     <section class="hero reveal">
       <div class="hero-glow" aria-hidden="true"></div>
       <div class="hero-copy">
-        <span class="hero-eyebrow badge badge-primary">Container AppStore Bridge</span>
+        <span class="hero-eyebrow badge badge-primary">Container AppStore Bridge</span>&nbsp;<span class="hero-eyebrow badge badge-info">#SelfHosted</span>
         <h1 class="hero-title">Curated apps,<br />ready to deploy.</h1>
         <p class="hero-sub">
-          Browse, inspect and deploy containerized applications from CasaOS-compatible
-          repositories straight to your stacks.
+          Browse, inspect and deploy containerized applications from curated
+          repositories straight to your Self-Hosted stacks.
         </p>
       </div>
 
@@ -160,7 +160,7 @@ export default {
       return this.apps
     },
     filteredTotal() {
-      return this.allApps.length
+      return this.totalApps || this.allApps.length
     },
     hasMore() {
       return this.offset < this.allApps.length
@@ -229,14 +229,38 @@ export default {
       this.loading = true
       this.offset = 0
       try {
-        let url = `/apps?limit=1000&offset=0&random=true`
-        if (this.selectedCategory) {
-          url += `&category=${this.selectedCategory}`
+        // Fetch ALL pages: /apps is paginated (backend max limit per request),
+        // so a single limit=1000 call truncates catalogs larger than 1000 apps.
+        // No `random=true` here: shuffling server-side per page would return
+        // duplicates / miss items across pages. Shuffle once client-side instead.
+        const pageLimit = 1000
+        let fetchOffset = 0
+        let total = Infinity
+        let combined = []
+        const categoryParam = this.selectedCategory
+          ? `&category=${encodeURIComponent(this.selectedCategory)}`
+          : ''
+
+        while (combined.length < total) {
+          const response = await axios.get(
+            `/apps?limit=${pageLimit}&offset=${fetchOffset}${categoryParam}`
+          )
+          const batch = response.data.apps || []
+          total = response.data.total ?? batch.length
+          combined = combined.concat(batch)
+          if (batch.length < pageLimit) break
+          fetchOffset += pageLimit
+          if (fetchOffset > 50000) break // safety guard
         }
 
-        const response = await axios.get(url)
-        this.allApps = response.data.apps
-        this.totalApps = response.data.total
+        // Fisher-Yates shuffle to preserve previous random display order
+        for (let i = combined.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1))
+          ;[combined[i], combined[j]] = [combined[j], combined[i]]
+        }
+
+        this.allApps = combined
+        this.totalApps = total === Infinity ? combined.length : total
         this.pageSize = this.limit
         this.apps = this.allApps.slice(0, this.pageSize)
         this.offset = this.pageSize
@@ -256,7 +280,7 @@ export default {
 
       this.loading = true
       try {
-        const response = await axios.get(`/apps/search?q=${this.searchQuery}`)
+        const response = await axios.get(`/apps/search?q=${encodeURIComponent(this.searchQuery)}`)
         this.allApps = response.data.apps
         this.totalApps = response.data.results_count
         this.apps = this.allApps.slice(0, this.limit)

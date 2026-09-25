@@ -1,6 +1,6 @@
 COMPOSE := docker compose
 
-.PHONY: help up down build rebuild restart logs shell ps
+.PHONY: help up down build rebuild restart logs shell ps frontend
 
 help: ## Mostra tutti i comandi disponibili
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -18,6 +18,13 @@ build: ## Build dell'immagine
 rebuild: build ## Build + down + up: ricostruisce e riavvia tutto da zero
 	$(COMPOSE) down
 	$(COMPOSE) up -d
+
+frontend: ## Ricompila solo Vue e aggiorna il container live (senza rebuild immagine)
+	npm --prefix frontend run build
+	$(COMPOSE) exec appstore-api rm -rf /app/public/assets /app/public/index.html
+	$(COMPOSE) cp frontend/dist/. appstore-api:/app/public/
+	$(COMPOSE) exec -u "0" appstore-api chown -R appuser:appuser /app/public
+	@echo "Frontend aggiornato (nessun restart necessario: i file statici sono serviti da disco)"
 
 restart: ## Restart dei container
 	$(COMPOSE) restart

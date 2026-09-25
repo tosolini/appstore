@@ -357,7 +357,9 @@ def test_export_full_and_restore_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "git_sync", GitSync(str(tmp_path / "cache")))
 
     resp = asyncio.run(main.export_github_imports(format="full", db=session))
-    data = json.loads(resp.body)
+    assert resp.media_type == "application/gzip"
+    assert "github-imports-backup.tar.gz" in resp.headers["content-disposition"]
+    data = main.parse_backup_bytes(resp.body)
     assert data["format"] == "container-appstore-imports-v1"
     assert data["count"] == 1
     assert data["imports"][0]["source_url"] == "https://github.com/unslothai/unsloth"
@@ -366,7 +368,7 @@ def test_export_full_and_restore_roundtrip(tmp_path, monkeypatch):
     session.query(GitHubImportedApp).delete()
     session.commit()
 
-    upload = UploadFile(file=BytesIO(json.dumps(data).encode("utf-8")), filename="backup.json")
+    upload = UploadFile(file=BytesIO(resp.body), filename="github-imports-backup.tar.gz")
     result = asyncio.run(main.restore_github_imports(file=upload, db=session))
     assert result["restored"] == 1
     assert result["skipped"] == 0
@@ -377,6 +379,13 @@ def test_export_full_and_restore_roundtrip(tmp_path, monkeypatch):
     assert restored.enabled is True
 
     assert "github-unslothai-unsloth" in main.git_sync.imported_apps
+
+    # Legacy plain-JSON backups remain accepted.
+    session.query(GitHubImportedApp).delete()
+    session.commit()
+    legacy = UploadFile(file=BytesIO(json.dumps(data).encode("utf-8")), filename="backup.json")
+    legacy_result = asyncio.run(main.restore_github_imports(file=legacy, db=session))
+    assert legacy_result["restored"] == 1
     session.close()
 
 

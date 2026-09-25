@@ -1,11 +1,14 @@
 import os
+import gzip
+import io
 import logging
+import tarfile
 import threading
 from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -198,11 +201,87 @@ def load_imported_apps_into_memory():
         db.close()
 
 
+BACKUP_FORMAT = "container-appstore-imports-v1"
+BACKUP_JSON_NAME = "github-imports-backup.json"
+BACKUP_ARCHIVE_NAME = "github-imports-backup.tar.gz"
+# Safety cap against zip-bombs on restore (decompressed JSON).
+MAX_BACKUP_BYTES = 50 * 1024 * 1024
+
+
+def build_backup_archive(payload: dict) -> bytes:
+    """Pack a backup payload as a reproducible tar.gz archive.
+
+    The archive contains a single entry (``github-imports-backup.json``)
+    with the JSON payload unchanged, so the data format is identical to
+    the legacy ``.json`` backup — only compressed.
+    """
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    buf = io.BytesIO()
+    # mtime=0 on both layers keeps builds reproducible
+    # (same payload -> same bytes). GzipFile is used explicitly because
+    # the `mtime` keyword of tarfile.open() is not portable across versions.
+    with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=9, mtime=0) as gz:
+        with tarfile.open(fileobj=gz, mode="w") as tar:
+            info = tarfile.TarInfo(name=BACKUP_JSON_NAME)
+            info.size = len(raw)
+            info.mtime = 0
+            tar.addfile(info, io.BytesIO(raw))
+    return buf.getvalue()
+
+
+def parse_backup_bytes(raw: bytes) -> dict:
+    """Parse backup bytes in either format (tar.gz archive or legacy JSON).
+
+    Raises:
+        ValueError: if the bytes are neither a valid backup archive
+            nor valid JSON.
+    """
+    if len(raw) > MAX_BACKUP_BYTES + 1024 * 1024:
+        raise ValueError("Backup file is too large")
+    # gzip magic bytes -> try tar.gz first.
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            buf = io.BytesIO(raw)
+            with tarfile.open(fileobj=buf, mode="r:gz") as tar:
+                member = None
+                try:
+                    member = tar.getmember(BACKUP_JSON_NAME)
+                except KeyError:
+                    # Fall back to the first JSON member for archives
+                    # produced by older/future tooling.
+                    for candidate in tar.getmembers():
+                        if candidate.isfile() and candidate.name.endswith(".json"):
+                            member = candidate
+                            break
+                if member is None:
+                    raise ValueError("Backup archive contains no JSON file")
+                if member.size > MAX_BACKUP_BYTES:
+                    raise ValueError("Backup file is too large")
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    raise ValueError("Could not read backup archive entry")
+                data = json.loads(extracted.read().decode("utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("Backup file is not valid JSON")
+                return data
+        except (tarfile.TarError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Backup archive is not a valid tar.gz backup") from exc
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Backup file is not valid JSON (nor tar.gz)") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Backup file is not valid JSON")
+    return data
+
+
 def _default_backup_path() -> Optional[Path]:
-    """Locate the bundled default imports backup file."""
+    """Locate the bundled default imports backup file (.tar.gz preferred)."""
     for candidate in (
-        Path(__file__).parent.parent / "github-imports-backup.json",
-        Path("/app/github-imports-backup.json"),
+        Path(__file__).parent.parent / BACKUP_ARCHIVE_NAME,
+        Path("/app") / BACKUP_ARCHIVE_NAME,
+        Path(__file__).parent.parent / BACKUP_JSON_NAME,
+        Path("/app") / BACKUP_JSON_NAME,
     ):
         if candidate.is_file():
             return candidate
@@ -216,11 +295,11 @@ def _load_default_backup() -> Optional[dict]:
         logger.info("No bundled default backup found, skipping default restore")
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = parse_backup_bytes(path.read_bytes())
+    except (OSError, ValueError):
         logger.exception("Could not read default backup %s", path)
         return None
-    if data.get("format") != "container-appstore-imports-v1":
+    if data.get("format") != BACKUP_FORMAT:
         logger.warning("Default backup %s has an unsupported format", path)
         return None
     return data
@@ -229,7 +308,8 @@ def _load_default_backup() -> Optional[dict]:
 def sync_seed_imports(reason: str = "startup"):
     """Seed fresh installs and merge newer bundled backups on redeploy.
 
-    - Empty catalog: restores the full ``github-imports-backup.json`` snapshot
+    - Empty catalog: restores the full bundled backup snapshot
+      (``github-imports-backup.tar.gz``, legacy ``.json`` also accepted)
       (compose content, images, metadata included) so no GitHub calls are made.
     - Existing catalog: compares the bundled backup's ``generated_at`` with the
       last applied one (``BackupState``). On mismatch the backup is applied in
@@ -646,7 +726,7 @@ async def sync_status() -> dict:
 async def list_apps(
     category: Optional[str] = Query(None),
     repository: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=10000),
     offset: int = Query(0, ge=0),
     random: bool = Query(False)) -> dict:
     """
@@ -741,7 +821,7 @@ async def search_apps(q: str = Query(..., min_length=1, max_length=200)) -> dict
     return {
         "query": q,
         "results_count": len(results),
-        "apps": [_app_summary(a) for a in results[:50]]
+        "apps": [_app_summary(a) for a in results]
     }
 
 
@@ -1149,7 +1229,7 @@ async def export_github_imports(
     if format == "full":
         all_records = db.query(GitHubImportedApp).all()
         payload = {
-            "format": "container-appstore-imports-v1",
+            "format": BACKUP_FORMAT,
             "generated_at": datetime.utcnow().isoformat(),
             "host_architecture": GitHubAppImporter.host_architecture(),
             "count": len(all_records),
@@ -1165,9 +1245,11 @@ async def export_github_imports(
                 for record in all_records
             ],
         }
-        return JSONResponse(
-            payload,
-            headers={"Content-Disposition": 'attachment; filename="github-imports-backup.json"'},
+        archive = build_backup_archive(payload)
+        return Response(
+            content=archive,
+            media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{BACKUP_ARCHIVE_NAME}"'},
         )
 
     apps = [deserialize_imported_app(record.payload_json).model_dump() for record in records]
@@ -1188,7 +1270,10 @@ async def restore_github_imports(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Restore a full GitHub-import backup without contacting GitHub."""
+    """Restore a full GitHub-import backup without contacting GitHub.
+
+    Accepts both the current ``.tar.gz`` archive and legacy ``.json`` backups.
+    """
     global git_sync
 
     if not git_sync:
@@ -1196,11 +1281,11 @@ async def restore_github_imports(
 
     raw = await file.read()
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise HTTPException(status_code=400, detail="Backup file is not valid JSON")
+        data = parse_backup_bytes(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    if data.get("format") != "container-appstore-imports-v1":
+    if data.get("format") != BACKUP_FORMAT:
         raise HTTPException(
             status_code=400,
             detail='Unsupported backup format. Expected "container-appstore-imports-v1".',
@@ -1333,18 +1418,17 @@ async def reset_github_imports(db: Session = Depends(get_db)) -> dict:
     if not git_sync:
         raise HTTPException(status_code=503, detail="AppStore not initialized")
 
-    backup_path = Path(__file__).parent.parent / "github-imports-backup.json"
-    if not backup_path.exists():
+    backup_path = _default_backup_path()
+    if not backup_path:
         raise HTTPException(status_code=404, detail="Default backup file not found")
 
     try:
-        with open(backup_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+        data = parse_backup_bytes(backup_path.read_bytes())
+    except (OSError, ValueError):
         logger.exception("Could not read default backup file %s", backup_path)
         raise HTTPException(status_code=500, detail="Could not read the default backup file")
 
-    if data.get("format") != "container-appstore-imports-v1":
+    if data.get("format") != BACKUP_FORMAT:
         raise HTTPException(
             status_code=400,
             detail='Default backup file has an unsupported format. Expected "container-appstore-imports-v1".',

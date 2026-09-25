@@ -173,8 +173,8 @@ class BackupState(Base):
     """Tracks which bundled backup was already applied to the catalog.
 
     Single-row table (``id=1``). Lets startup detect a new bundled
-    ``github-imports-backup.json`` (e.g. after a redeploy) and merge it
-    instead of ignoring it.
+    backup (``github-imports-backup.tar.gz``, e.g. after a redeploy) and
+    merge it instead of ignoring it.
     """
     __tablename__ = "backup_state"
 

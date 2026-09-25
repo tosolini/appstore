@@ -28,7 +28,7 @@ class AppRoutes:
     def list_apps(self, 
                   category: Optional[str] = Query(None),
                   repository: Optional[str] = Query(None),
-                  limit: int = Query(100, ge=1, le=1000),
+                  limit: int = Query(100, ge=1, le=10000),
                   offset: int = Query(0, ge=0)) -> dict:
         """
         Lista app con filtri opzionali
@@ -36,7 +36,7 @@ class AppRoutes:
         Query params:
             - category: Filtra per categoria
             - repository: Filtra per repository source
-            - limit: Numero risultati (default 100, max 1000)
+            - limit: Numero risultati (default 100, max 10000)
             - offset: Offset paginazione
         """
         
@@ -105,7 +105,7 @@ class AppRoutes:
                     "category": a.category,
                     "repository_source": a.repository_source
                 }
-                for a in results[:50]  # Limit 50 search results
+                for a in results
             ]
         }
     

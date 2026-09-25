@@ -144,6 +144,27 @@ def test_docker_dir_fallback_finds_generic_compose_and_dockerfile():
     assert GitHubAppImporter._select_docker_dir_fallback(["README.md", "src/main.py"]) == (None, None)
 
 
+def test_read_checkout_file_rejects_paths_resolving_outside_checkout(tmp_path):
+    checkout_dir = tmp_path / "repo"
+    checkout_dir.mkdir()
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+    (checkout_dir / "docker-compose.yml").symlink_to(outside_file)
+
+    with pytest.raises(GitHubImportError, match="Unsafe file path"):
+        GitHubAppImporter._read_checkout_file(checkout_dir, "docker-compose.yml")
+
+
+def test_read_checkout_file_reads_file_within_checkout(tmp_path):
+    checkout_dir = tmp_path / "repo"
+    checkout_dir.mkdir()
+    compose = checkout_dir / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+
+    content = GitHubAppImporter._read_checkout_file(checkout_dir, "docker-compose.yml")
+    assert content == "services: {}\n"
+
+
 def test_normalize_asset_url_handles_relative_and_blob_urls():
     relative = GitHubAppImporter._normalize_asset_url(
         "./assets/app.png",

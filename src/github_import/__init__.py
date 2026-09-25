@@ -70,7 +70,7 @@ class GitHubAppImporter:
                 file_read_source = "git-fallback"
 
                 def read_file(path: str) -> str:
-                    return (checkout_dir / path).read_text(encoding="utf-8")
+                    return self._read_checkout_file(checkout_dir, path)
 
             compose_path = self._select_compose_path(file_paths)
             dockerfile_path = self._select_dockerfile_path(file_paths) if not compose_path else None
@@ -351,6 +351,21 @@ class GitHubAppImporter:
                 continue
             files.append(relative)
         return files
+
+    @staticmethod
+    def _read_checkout_file(checkout_dir, relative_path: str) -> str:
+        base_dir = checkout_dir.resolve()
+        candidate = (checkout_dir / relative_path).resolve()
+
+        try:
+            candidate.relative_to(base_dir)
+        except ValueError as exc:
+            raise GitHubImportError(f"Unsafe file path: {relative_path}") from exc
+
+        if not candidate.is_file():
+            raise GitHubImportError(f"File not found: {relative_path}")
+
+        return candidate.read_text(encoding="utf-8")
 
     def _fetch_raw_file(self, owner: str, repo: str, branch: str, path: str) -> str:
         response = self.session.get(

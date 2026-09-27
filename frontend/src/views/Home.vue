@@ -119,16 +119,19 @@
         Load more apps
       </button>
     </div>
+
+    <BackToTop />
   </div>
 </template>
 
 <script>
 import axios from 'axios'
 import AppCard from '../components/AppCard.vue'
+import BackToTop from '../components/BackToTop.vue'
 
 export default {
   name: 'Home',
-  components: { AppCard },
+  components: { AppCard, BackToTop },
   data() {
     return {
       apps: [],

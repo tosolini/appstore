@@ -5,6 +5,8 @@ import Home from './views/Home.vue'
 import AppDetail from './views/AppDetail.vue'
 import Settings from './views/Settings.vue'
 import GitHubImports from './views/GitHubImports.vue'
+import DockerHubImports from './views/DockerHubImports.vue'
+import Imports from './views/Imports.vue'
 import NewApps from './views/NewApps.vue'
 import imageFallback from './directives/imageFallback'
 import './styles/theme.css'
@@ -31,9 +33,24 @@ const routes = [
         component: Settings
     },
     {
-        path: '/imports/github',
-        name: 'GitHubImports',
-        component: GitHubImports
+        path: '/imports',
+        component: Imports,
+        children: [
+            {
+                path: '',
+                redirect: '/imports/github'
+            },
+            {
+                path: 'github',
+                name: 'GitHubImports',
+                component: GitHubImports
+            },
+            {
+                path: 'dockerhub',
+                name: 'DockerHubImports',
+                component: DockerHubImports
+            }
+        ]
     }
 ]
 

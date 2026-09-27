@@ -41,6 +41,11 @@ from src.github_import import (
     load_persisted_imported_apps,
     serialize_imported_app,
 )
+from src.dockerhub_import import (
+    DockerHubAppImporter,
+    DockerHubImportError,
+    load_persisted_dockerhub_apps,
+)
 from src.parsers.compose_schema import ComposeSchema
 from src.security import get_encryption_manager
 from src.models import GitHubImportRequest, FrontendSnapshotRequest
@@ -480,6 +485,27 @@ def _app_detail_payload(app: App) -> dict:
     }
 
 
+def canonical_source_url(repository_url: str) -> str:
+    """Canonicalize a GitHub or Docker Hub source URL for duplicate detection."""
+    try:
+        return GitHubAppImporter.normalize_repository_url(repository_url)
+    except GitHubImportError:
+        pass
+    try:
+        return DockerHubAppImporter.normalize_repository_url(repository_url)
+    except DockerHubImportError:
+        return repository_url
+
+
+def is_dockerhub_source_url(source_url: str) -> bool:
+    """True when the source URL is a Docker Hub page (not a GitHub repo)."""
+    try:
+        DockerHubAppImporter.normalize_repository_url(source_url)
+    except DockerHubImportError:
+        return False
+    return True
+
+
 def _persist_imported_app_record(
     db: Session,
     record: Optional[GitHubImportedApp],
@@ -489,10 +515,7 @@ def _persist_imported_app_record(
 ) -> GitHubImportedApp:
     payload_json = serialize_imported_app(app)
 
-    try:
-        canonical_url = GitHubAppImporter.normalize_repository_url(repository_url)
-    except GitHubImportError:
-        canonical_url = repository_url
+    canonical_url = canonical_source_url(repository_url)
 
     if not record:
         record = GitHubImportedApp(
@@ -1079,29 +1102,11 @@ async def sync_repository(repo_id: int, db: Session = Depends(get_db)) -> dict:
 async def list_github_imports(db: Session = Depends(get_db)) -> dict:
     """List persisted GitHub-imported apps."""
     records = load_persisted_imported_apps(db)
-    imports = []
-    for record in records:
-        app = deserialize_imported_app(record.payload_json)
-        imports.append(
-            {
-                "id": record.id,
-                "source_url": record.source_url,
-                "repo_full_name": record.repo_full_name,
-                "app_id": record.app_id,
-                "title": app.title,
-                "description": app.description,
-                "icon": app.icon,
-                "homepage": app.homepage,
-                "source_type": app.source_type,
-                "import_debug": app.import_debug,
-                "architectures": app.architectures,
-                "host_architecture": app.host_architecture,
-                "compatible_with_host": app.compatible_with_host,
-                "compatibility_status": app.compatibility_status,
-                "compatibility_warning": app.compatibility_warning,
-                "last_imported_at": record.last_imported_at.isoformat() if record.last_imported_at else None,
-            }
-        )
+    imports = [
+        _serialize_import_record(record)
+        for record in records
+        if not is_dockerhub_source_url(record.source_url)
+    ]
 
     return {
         "total": len(imports),
@@ -1130,11 +1135,7 @@ async def import_github_repositories(
 
     canonical_to_record = {}
     for record in db.query(GitHubImportedApp).all():
-        try:
-            key = GitHubAppImporter.normalize_repository_url(record.source_url)
-        except GitHubImportError:
-            key = record.source_url
-        canonical_to_record.setdefault(key, record)
+        canonical_to_record.setdefault(canonical_source_url(record.source_url), record)
 
     seen_canonical = set()
     for repository_url in repositories:
@@ -1335,11 +1336,7 @@ def _apply_import_backup_entries(
     else:
         canonical_to_record: Dict[str, GitHubImportedApp] = {}
         for record in db.query(GitHubImportedApp).all():
-            try:
-                key = GitHubAppImporter.normalize_repository_url(record.source_url)
-            except GitHubImportError:
-                key = record.source_url
-            canonical_to_record.setdefault(key, record)
+            canonical_to_record.setdefault(canonical_source_url(record.source_url), record)
 
     restored = 0
     updated = 0
@@ -1359,17 +1356,18 @@ def _apply_import_backup_entries(
             if not source_url:
                 skipped += 1
                 continue
-            try:
-                canonical = GitHubAppImporter.normalize_repository_url(source_url)
-            except GitHubImportError:
-                canonical = source_url
+            canonical = canonical_source_url(source_url)
 
             fallback_full_name = source_url
             try:
                 owner, repo = GitHubAppImporter.parse_repository_url(source_url)
                 fallback_full_name = f"{owner}/{repo}"
             except GitHubImportError:
-                pass
+                try:
+                    namespace, repo_name = DockerHubAppImporter.parse_repository_url(source_url)
+                    fallback_full_name = f"{namespace}/{repo_name}"
+                except DockerHubImportError:
+                    pass
 
             last_imported_at = entry.get("last_imported_at")
             parsed_last_imported = None
@@ -1489,16 +1487,51 @@ async def resync_github_import_by_app(app_id: str, db: Session = Depends(get_db)
     return _do_resync_github_import(record, db)
 
 
+def _serialize_import_record(record: GitHubImportedApp) -> dict:
+    """List-view payload shared by the GitHub and Docker Hub import listings."""
+    app = deserialize_imported_app(record.payload_json)
+    return {
+        "id": record.id,
+        "source_url": record.source_url,
+        "repo_full_name": record.repo_full_name,
+        "app_id": record.app_id,
+        "title": app.title,
+        "description": app.description,
+        "icon": app.icon,
+        "homepage": app.homepage,
+        "source_type": app.source_type,
+        "import_debug": app.import_debug,
+        "architectures": app.architectures,
+        "host_architecture": app.host_architecture,
+        "compatible_with_host": app.compatible_with_host,
+        "compatibility_status": app.compatibility_status,
+        "compatibility_warning": app.compatibility_warning,
+        "last_imported_at": record.last_imported_at.isoformat() if record.last_imported_at else None,
+    }
+
+
 def _do_resync_github_import(record: GitHubImportedApp, db: Session) -> dict:
-    """Shared resync core: re-import from the record's source URL."""
+    """Shared resync core: re-import from the record's source URL.
+
+    Dispatches to the GitHub or Docker Hub importer based on the record's
+    source URL (both share the same persistence table).
+    """
     global git_sync
 
-    importer = GitHubAppImporter()
-    try:
-        app, source = importer.import_repository(record.source_url)
-    except GitHubImportError as exc:
-        logger.warning("GitHub resync failed for %s: %s", record.source_url, exc)
-        raise HTTPException(status_code=400, detail=str(exc))
+    if is_dockerhub_source_url(record.source_url):
+        importer = DockerHubAppImporter()
+        try:
+            app, source = importer.import_image(record.source_url)
+        except DockerHubImportError as exc:
+            logger.warning("Docker Hub resync failed for %s: %s", record.source_url, exc)
+            raise HTTPException(status_code=400, detail=str(exc))
+    else:
+        importer = GitHubAppImporter()
+        try:
+            app, source = importer.import_repository(record.source_url)
+        except GitHubImportError as exc:
+            logger.warning("GitHub resync failed for %s: %s", record.source_url, exc)
+            raise HTTPException(status_code=400, detail=str(exc))
 
     old_app_id = record.app_id
     _persist_imported_app_record(db, record, record.source_url, app, source)
@@ -1525,6 +1558,166 @@ async def delete_github_import(import_id: int, db: Session = Depends(get_db)) ->
 
     record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
     if not record:
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    db.delete(record)
+    db.commit()
+
+    if git_sync:
+        imported_apps = git_sync.imported_apps.copy()
+        imported_apps.pop(record.app_id, None)
+        git_sync.set_imported_apps(imported_apps)
+
+    return {"status": "success", "message": f"Deleted import for {record.repo_full_name}"}
+
+
+@app.get("/api/imports/dockerhub")
+async def list_dockerhub_imports(db: Session = Depends(get_db)) -> dict:
+    """List persisted Docker Hub-imported apps."""
+    records = load_persisted_dockerhub_apps(db)
+    imports = [_serialize_import_record(record) for record in records]
+
+    return {
+        "total": len(imports),
+        "imports": imports,
+    }
+
+
+@app.post("/api/imports/dockerhub")
+async def import_dockerhub_images(
+    request: GitHubImportRequest,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Import Docker Hub repositories into the app catalog."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    image_urls = [url.strip() for url in request.repositories if url.strip()]
+    if not image_urls:
+        raise HTTPException(status_code=400, detail="At least one Docker Hub URL is required")
+
+    importer = DockerHubAppImporter()
+    imported_apps = git_sync.imported_apps.copy()
+    results = []
+
+    canonical_to_record = {}
+    for record in db.query(GitHubImportedApp).all():
+        canonical_to_record.setdefault(canonical_source_url(record.source_url), record)
+
+    seen_canonical = set()
+    for image_url in image_urls:
+        try:
+            canonical_url = DockerHubAppImporter.normalize_repository_url(image_url)
+        except DockerHubImportError as exc:
+            logger.warning("Docker Hub import skipped for %s: %s", image_url, exc)
+            results.append(
+                {
+                    "repository": image_url,
+                    "status": "skipped",
+                    "message": str(exc),
+                }
+            )
+            continue
+
+        if canonical_url in seen_canonical:
+            results.append(
+                {
+                    "repository": image_url,
+                    "status": "skipped",
+                    "message": "Duplicate Docker Hub URL in this request; already processed.",
+                }
+            )
+            continue
+        seen_canonical.add(canonical_url)
+
+        try:
+            app, source = importer.import_image(image_url)
+
+            record = canonical_to_record.get(canonical_url)
+            old_app_id = record.app_id if record else None
+            _persist_imported_app_record(db, record, canonical_url, app, source)
+
+            if old_app_id and old_app_id != app.app_id:
+                imported_apps.pop(old_app_id, None)
+            imported_apps[app.app_id] = app
+            results.append(
+                {
+                    "repository": image_url,
+                    "status": "imported",
+                    "app_id": app.app_id,
+                    "title": app.title,
+                    "message": "Imported successfully",
+                }
+            )
+        except DockerHubImportError as exc:
+            logger.warning("Docker Hub import skipped for %s: %s", image_url, exc)
+            results.append(
+                {
+                    "repository": image_url,
+                    "status": "skipped",
+                    "message": str(exc),
+                }
+            )
+        except Exception as exc:
+            logger.exception("Docker Hub import failed for %s", image_url)
+            results.append(
+                {
+                    "repository": image_url,
+                    "status": "skipped",
+                    "message": "Unexpected error while importing this image.",
+                }
+            )
+
+    db.commit()
+    git_sync.set_imported_apps(imported_apps)
+
+    return {
+        "total": len(results),
+        "imported": len([result for result in results if result["status"] == "imported"]),
+        "skipped": len([result for result in results if result["status"] != "imported"]),
+        "results": results,
+    }
+
+
+@app.post("/api/imports/dockerhub/{import_id}/resync")
+async def resync_dockerhub_import(import_id: int, db: Session = Depends(get_db)) -> dict:
+    """Re-import a persisted Docker Hub image."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
+    if not record or not is_dockerhub_source_url(record.source_url):
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    return _do_resync_github_import(record, db)
+
+
+@app.post("/api/imports/dockerhub/by-app/{app_id}/resync")
+async def resync_dockerhub_import_by_app(app_id: str, db: Session = Depends(get_db)) -> dict:
+    """Re-import a persisted Docker Hub image looked up by app_id."""
+    global git_sync
+
+    if not git_sync:
+        raise HTTPException(status_code=503, detail="AppStore not initialized")
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.app_id == app_id).first()
+    if not record or not is_dockerhub_source_url(record.source_url):
+        raise HTTPException(status_code=404, detail="Imported app not found")
+
+    return _do_resync_github_import(record, db)
+
+
+@app.delete("/api/imports/dockerhub/{import_id}")
+async def delete_dockerhub_import(import_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a persisted Docker Hub import."""
+    global git_sync
+
+    record = db.query(GitHubImportedApp).filter(GitHubImportedApp.id == import_id).first()
+    if not record or not is_dockerhub_source_url(record.source_url):
         raise HTTPException(status_code=404, detail="Imported app not found")
 
     db.delete(record)

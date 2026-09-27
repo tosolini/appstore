@@ -21,7 +21,7 @@
             New
             <span v-if="newCount > 0" class="new-count">{{ newCount }}</span>
           </router-link>
-          <router-link to="/imports/github" class="nav-link">Imports</router-link>
+          <router-link to="/imports" class="nav-link">Imports</router-link>
           <router-link to="/settings" class="nav-link">Settings</router-link>
           <button
             class="theme-toggle"

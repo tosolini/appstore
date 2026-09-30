@@ -189,7 +189,7 @@
                 <dt>Source</dt>
                 <dd>
                   <a :href="app.source_url" target="_blank" rel="noopener noreferrer" class="source-link">
-                    GitHub
+                    {{ sourceLabel }}
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M7 17 17 7M9 7h8v8" />
                     </svg>
@@ -224,7 +224,7 @@
                   </span>
                 </dd>
               </div>
-              <div class="info-item" v-if="isGitHubImport">
+              <div class="info-item" v-if="isGitHubImport || isDockerHubImport">
                 <dt>Resync</dt>
                 <dd>
                   <button
@@ -232,7 +232,7 @@
                     class="btn btn-ghost btn-sm resync-btn"
                     :disabled="resyncing"
                     @click="resyncApp"
-                    :title="resyncStatus?.message || 'Re-import this repository from GitHub'"
+                    :title="resyncStatus?.message || resyncTitle"
                   >
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: resyncing }">
                       <path d="M21 12a9 9 0 1 1-2.6-6.4" />
@@ -316,6 +316,18 @@ export default {
     isGitHubImport() {
       return this.app?.repository_source === 'GitHub Imports'
     },
+    isDockerHubImport() {
+      return this.app?.repository_source === 'Docker Hub Imports'
+    },
+    sourceLabel() {
+      if (this.isDockerHubImport) return 'Docker Hub'
+      if (this.isGitHubImport) return 'GitHub'
+      return 'Source'
+    },
+    resyncTitle() {
+      if (this.isDockerHubImport) return 'Re-import this image from Docker Hub'
+      return 'Re-import this repository from GitHub'
+    },
     cleanedCompose() {
       if (!this.app || !this.app.compose_content) return ''
       try {
@@ -333,6 +345,12 @@ export default {
       if (!importDebug) return ''
 
       const composeSource = importDebug.compose_path ? ` (${importDebug.compose_path})` : ''
+      if (importDebug.import_strategy === 'dockerhub-description-compose') {
+        return `Docker Hub${composeSource}`
+      }
+      if (importDebug.import_strategy === 'dockerhub-generated') {
+        return 'Docker Hub'
+      }
       if (importDebug.import_strategy === 'dockerfile-fallback') {
         return `Dockerfile fallback${importDebug.dockerfile_path ? ` (${importDebug.dockerfile_path})` : ''}`
       }
@@ -344,6 +362,7 @@ export default {
 
     importDebugClass(importDebug) {
       if (!importDebug) return ''
+      if (importDebug.import_strategy === 'dockerhub-generated') return 'badge-info'
       if (importDebug.import_strategy === 'dockerfile-fallback') return 'badge-info'
       if (importDebug.import_strategy === 'git-fallback') return 'badge-warning'
       return 'badge-success'
@@ -400,7 +419,13 @@ export default {
       this.resyncing = true
       this.resyncStatus = null
       try {
-        const response = await axios.post(`/api/imports/github/by-app/${this.app.app_id}/resync`)
+        let response
+        try {
+          response = await axios.post(`/api/imports/github/by-app/${this.app.app_id}/resync`)
+        } catch (error) {
+          if (error.response?.status !== 404) throw error
+          response = await axios.post(`/api/imports/dockerhub/by-app/${this.app.app_id}/resync`)
+        }
         this.resyncStatus = { success: true, message: response.data.message || 'Re-imported successfully' }
         // Reload detail (compose content / metadata may have changed).
         // The app_id can change after a re-import (owner/repo rename).

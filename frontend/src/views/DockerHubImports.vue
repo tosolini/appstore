@@ -2,43 +2,26 @@
   <div class="imports-page">
     <header class="page-head reveal">
       <div>
-        <h1>GitHub Imports</h1>
-        <p class="text-muted">Manage imported GitHub apps, export the source list, and inspect import strategy details.</p>
+        <h1>Docker Hub Imports</h1>
+        <p class="text-muted">Manage imported Docker Hub apps and inspect import strategy details. Full backups (both sources) are handled on the <router-link to="/imports/github">GitHub Imports</router-link> tab.</p>
       </div>
     </header>
 
     <div class="toolbar reveal" :style="{ animationDelay: '50ms' }">
-      <button type="button" class="btn btn-primary btn-sm" @click="exportGitHubImports('json')">Export JSON</button>
-      <button type="button" class="btn btn-ghost btn-sm" @click="exportGitHubImports('urls')">Export URL List</button>
-      <button type="button" class="btn btn-accent btn-sm" @click="exportGitHubImports('full')">Export Full Backup</button>
-      <label class="btn btn-ghost btn-sm file-label">
-        {{ restoring ? 'Restoring…' : 'Restore backup…' }}
-        <input
-          ref="restoreFile"
-          type="file"
-          accept=".tar.gz,.tgz,.json,application/gzip,application/json"
-          class="file-input"
-          @change="handleRestoreFile"
-        />
-      </label>
       <button type="button" class="btn btn-ghost btn-sm" @click="loadImports" :disabled="loading">
         {{ loading ? 'Refreshing…' : 'Refresh' }}
       </button>
     </div>
 
-    <div v-if="restoreStatus" class="status-banner" :class="restoreStatus.success ? 'success' : 'error'">
-      {{ restoreStatus.message }}
-    </div>
-
     <div class="import-section reveal" :style="{ animationDelay: '80ms' }">
       <h2>Import list</h2>
-      <p class="text-muted">Paste repository URLs (one per line) or upload a previously exported list (<code>github-imports.json</code> / <code>github-imports.txt</code>).</p>
+      <p class="text-muted">Paste Docker Hub repository URLs (one per line), e.g. <code>https://hub.docker.com/r/msdeluise/plant-it-server</code>. Official images (<code>https://hub.docker.com/_/nginx</code>) are supported too.</p>
 
       <div class="import-controls">
         <textarea
           v-model="importInput"
           rows="5"
-          placeholder="https://github.com/example/project&#10;https://github.com/example/another-project"
+          placeholder="https://hub.docker.com/r/msdeluise/plant-it-server&#10;https://hub.docker.com/_/nginx"
           class="input mono"
         ></textarea>
         <div class="import-actions">
@@ -113,12 +96,11 @@
 
     <div class="import-debug-legend reveal">
       <span class="import-debug-legend-label">Import debug:</span>
-      <span class="badge badge-success">GitHub API</span>
-      <span class="badge badge-warning">git fallback</span>
-      <span class="badge badge-info">Dockerfile fallback</span>
+      <span class="badge badge-success">Docker Hub (description)</span>
+      <span class="badge badge-info">Docker Hub</span>
     </div>
 
-    <div v-if="githubImports.length" class="list-toolbar reveal">
+    <div v-if="dockerhubImports.length" class="list-toolbar reveal">
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="11" cy="11" r="7" />
@@ -131,11 +113,11 @@
           placeholder="Search by name, repo or URL…"
         />
       </div>
-      <span class="list-count">{{ filteredImports.length }} of {{ githubImports.length }}</span>
+      <span class="list-count">{{ filteredImports.length }} of {{ dockerhubImports.length }}</span>
     </div>
 
     <div v-if="loading" class="empty-state">Loading imports…</div>
-    <div v-else-if="githubImports.length === 0" class="empty-state">No GitHub imports yet.</div>
+    <div v-else-if="dockerhubImports.length === 0" class="empty-state">No Docker Hub imports yet.</div>
     <div v-else-if="filteredImports.length === 0" class="empty-state">No imports match your search.</div>
 
     <div v-else class="repos-list">
@@ -158,15 +140,15 @@
         </div>
         <div class="repo-actions">
           <button
-            @click="resyncGitHubImport(importedApp.id)"
+            @click="resyncDockerHubImport(importedApp.id)"
             class="btn btn-accent btn-sm"
-            :disabled="githubImportBusy[importedApp.id]">
-            {{ githubImportBusy[importedApp.id] ? 'Syncing…' : 'Resync' }}
+            :disabled="dockerhubImportBusy[importedApp.id]">
+            {{ dockerhubImportBusy[importedApp.id] ? 'Syncing…' : 'Resync' }}
           </button>
           <button
-            @click="deleteGitHubImport(importedApp.id)"
+            @click="deleteDockerHubImport(importedApp.id)"
             class="btn btn-soft-danger btn-sm"
-            :disabled="githubImportBusy[importedApp.id]">
+            :disabled="dockerhubImportBusy[importedApp.id]">
             Delete
           </button>
         </div>
@@ -203,11 +185,11 @@
 import axios from 'axios'
 
 export default {
-  name: 'GitHubImports',
+  name: 'DockerHubImports',
   data() {
     return {
-      githubImports: [],
-      githubImportBusy: {},
+      dockerhubImports: [],
+      dockerhubImportBusy: {},
       loading: true,
       importInput: '',
       importFileName: '',
@@ -216,8 +198,6 @@ export default {
       importStatus: null,
       importResults: [],
       errorModal: null,
-      restoring: false,
-      restoreStatus: null,
       searchQuery: '',
       currentPage: 1,
       pageSize: 20
@@ -226,8 +206,8 @@ export default {
   computed: {
     filteredImports() {
       const q = this.searchQuery.trim().toLowerCase()
-      if (!q) return this.githubImports
-      return this.githubImports.filter(app => {
+      if (!q) return this.dockerhubImports
+      return this.dockerhubImports.filter(app => {
         const haystack = [app.title, app.repo_full_name, app.source_url, app.app_id, app.description]
           .filter(Boolean)
           .join(' ')
@@ -272,7 +252,7 @@ export default {
     importButtonLabel() {
       if (this.importing) return `Importing ${this.parsedImportUrls.length}…`
       if (!this.parsedImportUrls.length) return 'Import'
-      const noun = this.parsedImportUrls.length === 1 ? 'repository' : 'repositories'
+      const noun = this.parsedImportUrls.length === 1 ? 'image' : 'images'
       return `Import ${this.parsedImportUrls.length} ${noun}`
     }
   },
@@ -280,8 +260,8 @@ export default {
     searchQuery() {
       this.currentPage = 1
     },
-    githubImports() {
-      const maxPage = Math.max(1, Math.ceil(this.githubImports.length / this.pageSize))
+    dockerhubImports() {
+      const maxPage = Math.max(1, Math.ceil(this.dockerhubImports.length / this.pageSize))
       if (this.currentPage > maxPage) this.currentPage = maxPage
     }
   },
@@ -303,13 +283,13 @@ export default {
       try {
         const parsed = new URL(candidate)
         const host = parsed.hostname.toLowerCase()
-        if (host === 'github.com' || host === 'www.github.com') {
-          let path = parsed.pathname
-            .replace(/\.git\/?$/i, '')
-            .replace(/^\/+|\/+$/g, '')
-          const parts = path.split('/').filter(Boolean).slice(0, 2)
-          if (parts.length === 2) {
-            return `https://github.com/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`
+        if (host === 'hub.docker.com' || host === 'www.hub.docker.com') {
+          const parts = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean)
+          if (parts[0] === 'r' && parts.length >= 3) {
+            return `https://hub.docker.com/r/${parts[1].toLowerCase()}/${parts[2].toLowerCase()}`
+          }
+          if (parts[0] === '_' && parts.length >= 2) {
+            return `https://hub.docker.com/r/library/${parts[1].toLowerCase()}`
           }
         }
       } catch (e) {
@@ -320,11 +300,11 @@ export default {
     async loadImports() {
       this.loading = true
       try {
-        const response = await axios.get('/api/imports/github')
-        this.githubImports = response.data.imports || []
+        const response = await axios.get('/api/imports/dockerhub')
+        this.dockerhubImports = response.data.imports || []
       } catch (error) {
-        console.error('Error loading GitHub imports:', error)
-        this.githubImports = []
+        console.error('Error loading Docker Hub imports:', error)
+        this.dockerhubImports = []
       } finally {
         this.loading = false
       }
@@ -382,108 +362,53 @@ export default {
       this.importing = true
       this.importStatus = null
       try {
-        const response = await axios.post('/api/imports/github', {
+        const response = await axios.post('/api/imports/dockerhub', {
           repositories: this.parsedImportUrls
         })
         this.importResults = response.data.results || []
         this.importStatus = {
           success: response.data.imported > 0,
-          message: `Imported ${response.data.imported} repositories, skipped ${response.data.skipped}.`
+          message: `Imported ${response.data.imported} images, skipped ${response.data.skipped}.`
         }
         this.importInput = ''
         this.importFileName = ''
         await this.loadImports()
       } catch (error) {
-        console.error('Error importing GitHub repositories:', error)
+        console.error('Error importing Docker Hub repositories:', error)
         this.importStatus = {
           success: false,
-          message: error.response?.data?.detail || 'Failed to import GitHub repositories'
+          message: error.response?.data?.detail || 'Failed to import Docker Hub repositories'
         }
       } finally {
         this.importing = false
       }
     },
-    async exportGitHubImports(format) {
+    async resyncDockerHubImport(importId) {
+      this.dockerhubImportBusy[importId] = true
       try {
-        const response = await axios.get(`/api/imports/github/export?format=${format}`, {
-          responseType: 'blob'
-        })
-        const blob = new Blob([response.data], {
-          type: format === 'full' ? 'application/gzip'
-            : format === 'json' ? 'application/json'
-            : 'text/plain'
-        })
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = format === 'json'
-          ? 'github-imports.json'
-          : format === 'full'
-            ? 'github-imports-backup.tar.gz'
-            : 'github-imports.txt'
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.URL.revokeObjectURL(url)
-      } catch (error) {
-        console.error('Error exporting GitHub imports:', error)
-        alert('Failed to export imported GitHub repositories')
-      }
-    },
-    async handleRestoreFile(event) {
-      const file = event.target.files && event.target.files[0]
-      this.restoreStatus = null
-      if (!file) return
-
-      this.restoring = true
-      try {
-        const formData = new FormData()
-        formData.append('file', file)
-        const response = await axios.post('/api/imports/github/restore', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
-        this.restoreStatus = {
-          success: response.data.restored > 0 || response.data.updated > 0,
-          message: response.data.message
-        }
+        await axios.post(`/api/imports/dockerhub/${importId}/resync`)
         await this.loadImports()
       } catch (error) {
-        console.error('Error restoring GitHub imports backup:', error)
-        this.restoreStatus = {
-          success: false,
-          message: error.response?.data?.detail || 'Failed to restore backup'
-        }
+        console.error('Error resyncing Docker Hub import:', error)
+        alert(error.response?.data?.detail || 'Failed to resync Docker Hub import')
       } finally {
-        this.restoring = false
-        if (this.$refs.restoreFile) this.$refs.restoreFile.value = ''
+        this.dockerhubImportBusy[importId] = false
       }
     },
-    async resyncGitHubImport(importId) {
-      this.githubImportBusy[importId] = true
-      try {
-        await axios.post(`/api/imports/github/${importId}/resync`)
-        await this.loadImports()
-      } catch (error) {
-        console.error('Error resyncing GitHub import:', error)
-        alert(error.response?.data?.detail || 'Failed to resync GitHub import')
-      } finally {
-        this.githubImportBusy[importId] = false
-      }
-    },
-    async deleteGitHubImport(importId) {
-      if (!confirm('Delete this imported GitHub app?')) {
+    async deleteDockerHubImport(importId) {
+      if (!confirm('Delete this imported Docker Hub app?')) {
         return
       }
 
-      this.githubImportBusy[importId] = true
+      this.dockerhubImportBusy[importId] = true
       try {
-        await axios.delete(`/api/imports/github/${importId}`)
-        this.githubImports = this.githubImports.filter(app => app.id !== importId)
+        await axios.delete(`/api/imports/dockerhub/${importId}`)
+        this.dockerhubImports = this.dockerhubImports.filter(app => app.id !== importId)
       } catch (error) {
-        console.error('Error deleting GitHub import:', error)
-        alert(error.response?.data?.detail || 'Failed to delete GitHub import')
+        console.error('Error deleting Docker Hub import:', error)
+        alert(error.response?.data?.detail || 'Failed to delete Docker Hub import')
       } finally {
-        this.githubImportBusy[importId] = false
+        this.dockerhubImportBusy[importId] = false
       }
     },
     formatDate(isoString) {
@@ -500,18 +425,17 @@ export default {
     },
     formatImportDebug(importDebug) {
       if (!importDebug) return ''
-      if (importDebug.import_strategy === 'dockerfile-fallback') {
-        return 'Imported via Dockerfile fallback'
+      if (importDebug.import_strategy === 'dockerhub-description-compose') {
+        return 'Docker Hub (description)'
       }
-      if (importDebug.import_strategy === 'git-fallback') {
-        return 'Imported via git fallback'
+      if (importDebug.import_strategy === 'dockerhub-generated') {
+        return 'Docker Hub'
       }
-      return 'Imported via GitHub API'
+      return 'Imported via Docker Hub'
     },
     importDebugClass(importDebug) {
       if (!importDebug) return ''
-      if (importDebug.import_strategy === 'dockerfile-fallback') return 'badge-info'
-      if (importDebug.import_strategy === 'git-fallback') return 'badge-warning'
+      if (importDebug.import_strategy === 'dockerhub-generated') return 'badge-info'
       return 'badge-success'
     },
     showErrorModal(result) {

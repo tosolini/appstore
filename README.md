@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.1.3** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
+**v1.1.4** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 
@@ -135,7 +135,7 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.3`).
+The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.4`).
 
 ## Imports & Backup
 

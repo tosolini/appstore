@@ -30,6 +30,25 @@ class FakeSession:
         return self.responses[lookup]
 
 
+def test_dockerhub_importer_removes_env_github_authorization_from_shared_session(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_exampletoken")
+    session = FakeSession({})
+
+    DockerHubAppImporter(session=session)
+
+    assert "Authorization" not in session.headers
+
+
+def test_dockerhub_importer_preserves_explicit_authorization_header(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_exampletoken")
+    session = FakeSession({})
+    session.headers["Authorization"] = "Bearer custom-token"
+
+    DockerHubAppImporter(session=session)
+
+    assert session.headers["Authorization"] == "Bearer custom-token"
+
+
 PLANT_IT_DESCRIPTION = """<p align="center">Plant-it gardening companion app.</p>
 
 ## Quickstart

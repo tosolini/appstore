@@ -53,9 +53,14 @@ class DockerHubAppImporter:
         self.session = session or requests.Session()
         self.session.headers.setdefault("Accept", "application/json")
         self.session.headers.setdefault("User-Agent", "container-appstore-importer")
+        authorization = self.session.headers.get("Authorization")
         # Reuse the registry inspection logic (manifest auth, architecture
         # detection) from the GitHub importer on the same session.
         self._gh = GitHubAppImporter(session=self.session)
+        if authorization is None:
+            self.session.headers.pop("Authorization", None)
+        else:
+            self.session.headers["Authorization"] = authorization
         self.session.headers["Accept"] = "application/json"
 
     def import_image(self, image_url: str, tag: str = "latest") -> Tuple[App, Dict[str, Any]]:

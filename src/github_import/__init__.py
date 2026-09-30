@@ -22,6 +22,15 @@ GITHUB_API_BASE = "https://api.github.com"
 RAW_GITHUB_BASE = "https://raw.githubusercontent.com"
 IMPORT_SOURCE_NAME = "GitHub Imports"
 
+# Safe (linear-time) image patterns: avoid `[^>]+` / `[^\]]*` which allow
+# `<` / `[` / `(` inside the match and backtrack quadratically on hostile
+# inputs (CodeQL py/polynomial-redos). See dockerhub_import for rationale.
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\[\]]*\]\(([^()\s]+)\)")
+_HTML_IMAGE_RE = re.compile(
+    r'<img\b[^<>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE
+)
+_MAX_SCAN_CHARS = 50000
+
 
 class GitHubImportError(ValueError):
     """Raised when a repository cannot be imported."""
@@ -299,14 +308,14 @@ class GitHubAppImporter:
 
     @staticmethod
     def _extract_meta_content(html: str, property_name: str) -> Optional[str]:
-        pattern = rf'<meta[^>]+property=["\']{re.escape(property_name)}["\'][^>]+content=["\']([^"\']+)["\']'
-        match = re.search(pattern, html, flags=re.IGNORECASE)
+        pattern = rf'<meta\b[^<>]*?\bproperty=["\']{re.escape(property_name)}["\'][^<>]*?\bcontent=["\']([^"\']+)["\']'
+        match = re.search(pattern, html[:_MAX_SCAN_CHARS], flags=re.IGNORECASE)
         return match.group(1).strip() if match else None
 
     @staticmethod
     def _extract_meta_name(html: str, name: str) -> Optional[str]:
-        pattern = rf'<meta[^>]+name=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']+)["\']'
-        match = re.search(pattern, html, flags=re.IGNORECASE)
+        pattern = rf'<meta\b[^<>]*?\bname=["\']{re.escape(name)}["\'][^<>]*?\bcontent=["\']([^"\']+)["\']'
+        match = re.search(pattern, html[:_MAX_SCAN_CHARS], flags=re.IGNORECASE)
         return match.group(1).strip() if match else None
 
     @staticmethod
@@ -542,8 +551,9 @@ class GitHubAppImporter:
         if not readme_content:
             return []
 
-        markdown_images = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme_content)
-        html_images = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', readme_content, flags=re.IGNORECASE)
+        text = readme_content[:_MAX_SCAN_CHARS]
+        markdown_images = _MARKDOWN_IMAGE_RE.findall(text)
+        html_images = _HTML_IMAGE_RE.findall(text)
         base_dir = ""
         if readme_path and "/" in readme_path:
             base_dir = readme_path.rsplit("/", 1)[0]

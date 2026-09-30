@@ -1147,7 +1147,7 @@ async def import_github_repositories(
                 {
                     "repository": repository_url,
                     "status": "skipped",
-                    "message": str(exc),
+                    "message": "Import failed for this repository. Check server logs for details.",
                 }
             )
             continue
@@ -1188,7 +1188,7 @@ async def import_github_repositories(
                 {
                     "repository": repository_url,
                     "status": "skipped",
-                    "message": str(exc),
+                    "message": "Import failed for this repository. Check server logs for details.",
                 }
             )
         except Exception as exc:
@@ -1616,7 +1616,7 @@ async def import_dockerhub_images(
                 {
                     "repository": image_url,
                     "status": "skipped",
-                    "message": str(exc),
+                    "message": "Import failed for this image. Check server logs for details.",
                 }
             )
             continue
@@ -1657,7 +1657,7 @@ async def import_dockerhub_images(
                 {
                     "repository": image_url,
                     "status": "skipped",
-                    "message": str(exc),
+                    "message": "Import failed for this image. Check server logs for details.",
                 }
             )
         except Exception as exc:

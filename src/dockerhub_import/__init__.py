@@ -21,9 +21,21 @@ DOCKERHUB_URL_BASE = "https://hub.docker.com"
 IMPORT_SOURCE_NAME = "Docker Hub Imports"
 
 _FENCED_BLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+\-]*\n)?(.*?)```", re.DOTALL)
-_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
-_HTML_IMAGE_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
+# NOTE: the image/tag patterns below intentionally avoid `[^>]+` / `[^\]]*`
+# style classes: those allow `<` / `[` / `(` inside the match, which makes
+# the engine backtrack quadratically on inputs like `<<<<...` or
+# `![![![...` (CodeQL py/polynomial-redos). Excluding the delimiter chars
+# (`[^<>]`, `[^[\]]`, `[^()\s]`) keeps matching linear while covering
+# real-world markdown/HTML images.
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\[\]]*\]\(([^()\s]+)\)")
+_HTML_IMAGE_RE = re.compile(
+    r'<img\b[^<>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE
+)
+_HTML_TAG_RE = re.compile(r"<[^<>]+>")
+# Bound how much uncontrolled upstream text (Docker Hub descriptions can be
+# arbitrarily large) is fed to the regexes above, as defense-in-depth
+# against ReDoS (see CodeQL py/polynomial-redos recommendation).
+_MAX_SCAN_CHARS = 50000
 _IGNORED_IMAGE_FRAGMENTS = (
     "shields.io",
     "badge",
@@ -258,8 +270,13 @@ class DockerHubAppImporter:
         short = (meta.get("description") or "").strip()
         if short:
             return short
-        for line in (full_description or "").splitlines():
-            cleaned = _HTML_TAG_RE.sub("", line).strip().lstrip("#*>- ").strip()
+        # Truncate uncontrolled upstream text before regex matching
+        # (ReDoS defense-in-depth; see py/polynomial-redos).
+        text = (full_description or "")[:_MAX_SCAN_CHARS]
+        for line in text.splitlines():
+            # Bound individual line length as well; a single very long
+            # line without newlines would otherwise still be expensive.
+            cleaned = _HTML_TAG_RE.sub("", line[:5000]).strip().lstrip("#*>- ").strip()
             if len(cleaned) >= 20:
                 return cleaned[:300]
         name = meta.get("name") or "Docker Hub image"
@@ -269,10 +286,11 @@ class DockerHubAppImporter:
     def _extract_description_images(cls, full_description: str) -> List[str]:
         if not full_description:
             return []
+        # Truncate uncontrolled upstream text before regex matching
+        # (ReDoS defense-in-depth; see py/polynomial-redos).
+        text = full_description[:_MAX_SCAN_CHARS]
         candidates: List[str] = []
-        for image_url in _MARKDOWN_IMAGE_RE.findall(full_description) + _HTML_IMAGE_RE.findall(
-            full_description
-        ):
+        for image_url in _MARKDOWN_IMAGE_RE.findall(text) + _HTML_IMAGE_RE.findall(text):
             cleaned = image_url.strip().strip("<>").strip()
             parsed = urlparse(cleaned)
             if parsed.scheme not in {"http", "https"}:
@@ -299,7 +317,10 @@ class DockerHubAppImporter:
         """Return the first fenced code block that parses as a compose file."""
         if not full_description:
             return None
-        for match in _FENCED_BLOCK_RE.finditer(full_description):
+        # Truncate uncontrolled upstream text before regex matching
+        # (ReDoS defense-in-depth; see py/polynomial-redos).
+        text = full_description[:_MAX_SCAN_CHARS]
+        for match in _FENCED_BLOCK_RE.finditer(text):
             # Dedent before stripping: fenced blocks nested in markdown list
             # items share a common indent that strip() alone would break on
             # the first line only.

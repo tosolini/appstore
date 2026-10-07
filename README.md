@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.1.4** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
+**v1.1.5** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 
@@ -135,7 +135,7 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.4`).
+The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.5`).
 
 ## Imports & Backup
 
@@ -248,6 +248,12 @@ curl -X POST http://localhost:8888/api/imports/dockerhub \
 ```
 
 If the image description documents a compose stack, it is reused as-is; otherwise a single-service stack is generated for the image (`latest` tag) with ports detected from the image itself.
+
+## Release notes — v1.1.5 (security hardening)
+
+- **Security:** bump `vue` 3.5.39 → **3.5.43** in `frontend/` (fixes GHSA-g2v6-rqmx-r4w6 — XSS via missing CR in `@vue/server-renderer` attribute-name blacklist).
+- **Security:** bump `source-map-js` 1.2.1 → **1.2.2** in `frontend/` lockfile (fixes GHSA-68fv-2mgg-jv7q — event-loop DoS via indexed source-map section offsets). `npm audit` reports 0 vulnerabilities.
+- **Version alignment:** `frontend/package.json`, `frontend/package-lock.json` and backend `/health` + FastAPI version are all pinned to **1.1.5**.
 
 ## Release notes — v1.1.4 (security hardening)
 

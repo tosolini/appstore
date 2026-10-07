@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Container AppStore API",
     description="API bridge for managing and deploying container apps via Portainer or Arcane",
-    version="1.1.2"
+    version="1.1.4"
 )
 
 # CORS
@@ -541,7 +541,7 @@ async def startup_event():
     """Startup: initialize components and scheduler"""
     global git_sync, portainer_client, arcane_client, scheduler, active_backend
     
-    logger.info("Starting AppStore Bridge API v1.1.2...")
+    logger.info("Starting AppStore Bridge API v1.1.4...")
     
     # Initialize database
     init_db()
@@ -718,7 +718,7 @@ async def health_check() -> dict:
     return {
         "status": "ok" if overall_ok else "degraded",
         "service": "AppStore Bridge API",
-        "version": "1.1.2",
+        "version": "1.1.4",
         "active_backend": active_backend,
         "portainer_connected": portainer_ok,
         "arcane_connected": arcane_ok,

@@ -249,6 +249,14 @@ curl -X POST http://localhost:8888/api/imports/dockerhub \
 
 If the image description documents a compose stack, it is reused as-is; otherwise a single-service stack is generated for the image (`latest` tag) with ports detected from the image itself.
 
+## Release notes — v1.1.4 (security hardening)
+
+- **Security:** bump `axios` 1.18.1 → **1.20.0** in `frontend/` (fixes CVE-2026-101903 / CVE-2026-101905 / CVE-2026-101906 / CVE-2026-101907 / CVE-2026-101909 — hardened runtime option handling, `form-data` floor raised to `^4.0.6`).
+- **Security:** bump `GitPython` 3.1.59 → **3.1.62** in `requirements.txt` (fixes GHSA-whh4-5q6c-9v3x; hardened diff-path / actor parsing, unsafe submodule checkout rejection, bare-repo worktree fix).
+- **Fix:** prevent token leakage in Docker Hub importer.
+- **Fix:** resolve CodeQL ReDoS + stack-trace exposure alerts.
+- **Version alignment:** `frontend/package.json`, `frontend/package-lock.json` and backend `/health` + FastAPI version are all pinned to **1.1.4**.
+
 ## Author
 Walter Tosolini https://www.tosolini.info
 

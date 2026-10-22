@@ -135,7 +135,17 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.5`).
+The production compose pulls the published image from GitHub Container Registry instead of building locally. It is pinned to the immutable `v1.1.5` tag (built by CI on push to `main`), so the deployed image is exactly the one that was built and tested. Override the image via `APPSTORE_IMAGE` to track `ghcr.io/tosolini/appstore:latest` instead, or to pick another release:
+
+```bash
+APPSTORE_IMAGE=ghcr.io/tosolini/appstore:latest docker compose -f docker-compose.prod.yml up -d
+```
+
+The development compose always builds the image from the local `Dockerfile`, so the running container matches the working tree (frontend bundle and pinned dependency lockfile included):
+
+```bash
+docker compose up -d --build
+```
 
 ## Imports & Backup
 

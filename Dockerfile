@@ -76,7 +76,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 EXPOSE 8888
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# The start period is generous: on first boot the app clones the CasaOS
+# AppStore repository, which can take a couple of minutes on a slow link or
+# when the image runs under emulation on a non-native architecture.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
     CMD curl -f http://localhost:8888/health || exit 1
 
 USER appuser

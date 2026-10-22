@@ -51,6 +51,10 @@ services:
       # Fresh installs are auto-populated from the bundled
       # github-imports-backup.tar.gz (no GitHub calls). Use "Full Reset to Default"
       # in Settings to restore that default set at any time.
+      #
+      # All CasaOS repositories are disabled by default: the bundled backup is the
+      # primary catalog and cloning them on every boot is slow. Enable one in
+      # Settings -> Repositories if you want to sync it.
 
       # Active backend selection: "portainer", "arcane", or "auto" (default)
       ACTIVE_BACKEND: "${ACTIVE_BACKEND:-auto}"

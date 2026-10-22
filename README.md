@@ -8,7 +8,7 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 
 ## Features
 
-- Browse apps from multiple Git repositories (CasaOS AppStore, LinuxServer, BigBear, custom)
+- Browse apps from the bundled default catalog (666 apps, restored offline) plus any CasaOS-compatible Git repository you enable in *Settings → Repositories* (CasaOS AppStore, LinuxServer, BigBear, custom)
 - Import standalone GitHub repositories and auto-generate app pages from `docker-compose.yml` or `Dockerfile`
 - Import Docker Hub images (`hub.docker.com/r/{namespace}/{repo}`, official `hub.docker.com/_/{repo}`) — reuses an embedded compose snippet from the image description when available, otherwise generates a single-service stack with ports inferred from the image config
 - Smart duplicate detection: URLs are canonicalized so `owner/repo`, `owner/repo.git/`, trailing slashes and case variants all resolve to the same import (GitHub and Docker Hub each have their own canonical form)
@@ -135,7 +135,17 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-The production compose pulls `ghcr.io/tosolini/appstore:latest` (built automatically by CI on push to `main`/`master`) instead of building locally. Override the image via `APPSTORE_IMAGE` (e.g. `APPSTORE_IMAGE=ghcr.io/tosolini/appstore:v1.1.5`).
+The production compose pulls the published image from GitHub Container Registry instead of building locally. It is pinned to the immutable `v1.1.5` tag (built by CI on push to `main`), so the deployed image is exactly the one that was built and tested. Override the image via `APPSTORE_IMAGE` to track `ghcr.io/tosolini/appstore:latest` instead, or to pick another release:
+
+```bash
+APPSTORE_IMAGE=ghcr.io/tosolini/appstore:latest docker compose -f docker-compose.prod.yml up -d
+```
+
+The development compose always builds the image from the local `Dockerfile`, so the running container matches the working tree (frontend bundle and pinned dependency lockfile included):
+
+```bash
+docker compose up -d --build
+```
 
 ## Imports & Backup
 
@@ -257,6 +267,7 @@ If the image description documents a compose stack, it is reused as-is; otherwis
 - **Security:** bump `follow-redirects` 1.16.0 → **1.16.1** in `frontend/` lockfile (fixes the array-form header credential-stripping bypass and the `sensitiveHeaders` regex escaping issue).
 - **Fix:** repair the Docker image build. `node:20-alpine` ships npm 10.8.2, whose resolver crashes with `Cannot read properties of null (reading 'edgesOut')` on the current dependency tree. The frontend builder now uses `node:22-alpine` and installs from `frontend/package-lock.json` with `npm ci`, so the image build is reproducible and pinned to the audited lockfile. CI now builds the image on every pull request and smoke-tests `/health`, so a broken Dockerfile is caught before merging.
 - **Fix:** refresh the bundled `github-imports-backup.tar.gz` (666 imports).
+- **Change:** all CasaOS repositories are now **disabled by default** in both compose files. The bundled backup is the primary catalog (666 apps, restored without any GitHub call), while cloning the CasaOS AppStore repository on every boot was slow and delayed startup by minutes. Enable a repository any time in *Settings → Repositories*.
 - **Version alignment:** `frontend/package.json`, `frontend/package-lock.json` and backend `/health` + FastAPI version are all pinned to **1.1.5**.
 
 ## Release notes — v1.1.4 (security hardening)

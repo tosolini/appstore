@@ -1,6 +1,10 @@
 services:
   appstore-api:
-    image: "${APPSTORE_IMAGE:-ghcr.io/tosolini/appstore:latest}"
+    # Production: use the image published from the repository (GHCR).
+    # Pinned to an immutable version tag so the deployed image is exactly the
+    # one that was built and tested; override APPSTORE_IMAGE to track
+    # `ghcr.io/tosolini/appstore:latest` instead.
+    image: "${APPSTORE_IMAGE:-ghcr.io/tosolini/appstore:v1.1.5}"
     container_name: container-appstore-api
     # Starts as root only to fix ownership of bind-mounted ./data (owned by the
     # host user); the entrypoint then drops privileges to the non-root app user.
@@ -47,6 +51,10 @@ services:
       # Fresh installs are auto-populated from the bundled
       # github-imports-backup.tar.gz (no GitHub calls). Use "Full Reset to Default"
       # in Settings to restore that default set at any time.
+      #
+      # All CasaOS repositories are disabled by default: the bundled backup is the
+      # primary catalog and cloning them on every boot is slow. Enable one in
+      # Settings -> Repositories if you want to sync it.
 
       # Active backend selection: "portainer", "arcane", or "auto" (default)
       ACTIVE_BACKEND: "${ACTIVE_BACKEND:-auto}"

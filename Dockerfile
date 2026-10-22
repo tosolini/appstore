@@ -1,13 +1,16 @@
 # Stage 1: Build Vue 3 frontend
-FROM node:20-alpine AS frontend-builder
+# node:22-alpine ships npm 10.9.x — the npm 10.8.x line shipped with node:20-alpine
+# crashes with "Cannot read properties of null (reading 'edgesOut')" when resolving
+# the current dependency tree, which broke the image build in CI.
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /frontend
 
-# Copy frontend dependencies  
-COPY frontend/package.json ./
+# Copy frontend dependencies (lockfile included so the install is reproducible)
+COPY frontend/package.json frontend/package-lock.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies from the lockfile
+RUN npm ci
 
 # Copy frontend source
 COPY frontend/src ./src

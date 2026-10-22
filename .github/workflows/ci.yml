@@ -39,3 +39,41 @@ jobs:
             exit 0
           fi
           exit "$ec"
+
+  docker-build:
+    # Builds the image without pushing it, so a broken Dockerfile is caught on
+    # the pull request instead of only in the publish workflow after merging
+    # to main.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: container-appstore:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          docker run -d --name appstore-ci -p 8888:8888 container-appstore:ci
+          # Startup clones the CasaOS AppStore repo, so allow a generous window.
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8888/health; then
+              echo
+              echo "Image is healthy."
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Image did not become healthy in time."
+          docker logs appstore-ci
+          exit 1

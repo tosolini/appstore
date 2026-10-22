@@ -1,5 +1,8 @@
 services:
   appstore-api:
+    # Development: always build the image from the local Dockerfile so the
+    # running container matches the working tree (including the frontend
+    # bundle and the pinned dependency lockfile).
     build:
       context: .
       dockerfile: Dockerfile

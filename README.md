@@ -253,6 +253,10 @@ If the image description documents a compose stack, it is reused as-is; otherwis
 
 - **Security:** bump `vue` 3.5.39 → **3.5.43** in `frontend/` (fixes GHSA-g2v6-rqmx-r4w6 — XSS via missing CR in `@vue/server-renderer` attribute-name blacklist).
 - **Security:** bump `source-map-js` 1.2.1 → **1.2.2** in `frontend/` lockfile (fixes GHSA-68fv-2mgg-jv7q — event-loop DoS via indexed source-map section offsets). `npm audit` reports 0 vulnerabilities.
+- **Security:** bump `vite` 8.1.3 → **8.3.5** in `frontend/` (fixes the open advisories on `launch-editor` command execution / `fs.existsSync` bypass, the `server.fs.allow` path-matching bypass and the cross-origin script execution through custom middleware).
+- **Security:** bump `follow-redirects` 1.16.0 → **1.16.1** in `frontend/` lockfile (fixes the array-form header credential-stripping bypass and the `sensitiveHeaders` regex escaping issue).
+- **Fix:** repair the Docker image build. `node:20-alpine` ships npm 10.8.2, whose resolver crashes with `Cannot read properties of null (reading 'edgesOut')` on the current dependency tree. The frontend builder now uses `node:22-alpine` and installs from `frontend/package-lock.json` with `npm ci`, so the image build is reproducible and pinned to the audited lockfile. CI now builds the image on every pull request and smoke-tests `/health`, so a broken Dockerfile is caught before merging.
+- **Fix:** refresh the bundled `github-imports-backup.tar.gz` (666 imports).
 - **Version alignment:** `frontend/package.json`, `frontend/package-lock.json` and backend `/health` + FastAPI version are all pinned to **1.1.5**.
 
 ## Release notes — v1.1.4 (security hardening)

@@ -1,6 +1,6 @@
 # Container AppStore Bridge
 
-**v1.1.5** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
+**v1.1.8** — A Docker app store with dual-backend support, resilient GitHub **and Docker Hub** app importing, full backup/restore, a tabbed imports management page, a "New apps" page with version snapshots, and a premium dark-first UI.
 
 Browse and deploy containerized applications from CasaOS-compatible app stores (or any custom Git repository) to your chosen container management platform.
 
@@ -8,7 +8,7 @@ Browse and deploy containerized applications from CasaOS-compatible app stores (
 
 ## Features
 
-- Browse apps from the bundled default catalog (666 apps, restored offline) plus any CasaOS-compatible Git repository you enable in *Settings → Repositories* (CasaOS AppStore, LinuxServer, BigBear, custom)
+- Browse apps from the bundled default catalog (856 apps, restored offline) plus any CasaOS-compatible Git repository you enable in *Settings → Repositories* (CasaOS AppStore, LinuxServer, BigBear, custom)
 - Import standalone GitHub repositories and auto-generate app pages from `docker-compose.yml` or `Dockerfile`
 - Import Docker Hub images (`hub.docker.com/r/{namespace}/{repo}`, official `hub.docker.com/_/{repo}`) — reuses an embedded compose snippet from the image description when available, otherwise generates a single-service stack with ports inferred from the image config
 - Smart duplicate detection: URLs are canonicalized so `owner/repo`, `owner/repo.git/`, trailing slashes and case variants all resolve to the same import (GitHub and Docker Hub each have their own canonical form)
@@ -135,7 +135,7 @@ docker compose up -d --build
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-The production compose pulls the published image from GitHub Container Registry instead of building locally. It is pinned to the immutable `v1.1.5` tag, so the deployed image is exactly the one that was built and tested.
+The production compose pulls the published image from GitHub Container Registry instead of building locally. It is pinned to the immutable `v1.1.8` tag, so the deployed image is exactly the one that was built and tested.
 
 Two different CI triggers produce the tags:
 
@@ -265,6 +265,12 @@ curl -X POST http://localhost:8888/api/imports/dockerhub \
 ```
 
 If the image description documents a compose stack, it is reused as-is; otherwise a single-service stack is generated for the image (`latest` tag) with ports detected from the image itself.
+
+## Release notes — v1.1.8 (updated curated apps)
+
+- **Catalog:** updated the bundled `github-imports-backup.tar.gz` curated apps archive to **856** apps (+94 new apps since `1.1.7`, +190 since `v1.1.5`).
+- **Dependencies:** includes merged dependency updates since `v1.1.5` (`GitPython` 3.1.62 → **3.2.1**, `zod` 3.23.8 → **4.6.6** in `appstore-mcp/`, and `follow-redirects` 1.16.1 → **1.16.2** in `frontend/`).
+- **Version alignment:** `frontend/package.json`, `frontend/package-lock.json`, backend `/health` + FastAPI version, `docker-compose.prod.yml`, and `.env.example` are all pinned to **1.1.8**.
 
 ## Release notes — v1.1.5 (security hardening)
 
